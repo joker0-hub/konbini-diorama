@@ -331,8 +331,8 @@ const envOk = await page.evaluate(async () => {
       });
     }
   }
-  // 复原到默认雨夜
-  window.__konbini.env.set({ time: 'night', weather: 'rain' }, true);
+  // 复原到默认「白天 + 雨」
+  window.__konbini.env.set({ time: 'day', weather: 'rain' }, true);
   return seen;
 });
 const envAt = (k) => envOk.find((e) => e.want === k);
@@ -447,7 +447,7 @@ check('时间/天气各有独立分组标题', ui.groups?.join(',') === '时间,
 check(
   '切换条高亮与真实状态一致',
   ui.active.length === 2 &&
-    ui.active.includes('夜晚') &&
+    ui.active.includes('白天') &&
     ui.active.includes('雨'),
   `active=${ui.active?.join(',')}`,
 );
@@ -534,6 +534,48 @@ let storefront = null;
     }
     return { half: H, bad };
   });
+
+  // 自动门是滑门：门洞范围内不能有静止构件横在门口。
+  // 旧版踢脚板 / 磨砂膜 / 中横梁都是通长的，门一开就留下 0.4m 高的
+  // 深色板，看起来像一道门槛。这里按"与门洞的 x 重叠宽度"判定，
+  // 门框竖挺（只有 ~4cm 压进门洞）不会误报。
+  const doorway = await p2.evaluate(() => {
+    const L = window.__konbini.layout;
+    const door = L.door;
+    const root = window.__konbini.world.root;
+    root.updateMatrixWorld(true);
+    const bad = [];
+    root.traverse((o) => {
+      if (!o.isMesh || !o.geometry) return;
+      // 只看静态、不透明的建筑构件：雨幕 / 飞雪 / 门扇本身都不算"门槛"。
+      let p = o;
+      while (p) {
+        if (p.name === 'auto-door' || p.name === 'rain-layer' || p.name === 'snow-layer') return;
+        p = p.parent;
+      }
+      const m = o.material;
+      if (!m || m.transparent || m.opacity < 0.5) return;
+      if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+      const bb = o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld);
+      const overlap = Math.min(bb.max.x, door.x1) - Math.max(bb.min.x, door.x0);
+      const inZ = bb.max.z > L.store.z1 - 0.16 && bb.min.z < L.store.z1 + 0.18;
+      const inY = bb.max.y > 0.24 && bb.min.y < 2.2;
+      if (overlap > 0.25 && inZ && inY) {
+        bad.push({
+          name: o.name || '(unnamed)',
+          x: [+bb.min.x.toFixed(2), +bb.max.x.toFixed(2)],
+          y: [+bb.min.y.toFixed(2), +bb.max.y.toFixed(2)],
+          z: [+bb.min.z.toFixed(2), +bb.max.z.toFixed(2)],
+        });
+      }
+    });
+    return { count: bad.length, bad: bad.slice(0, 8) };
+  });
+  check(
+    '开门后门洞底部没有静止的「门槛」构件',
+    doorway.count === 0,
+    JSON.stringify(doorway),
+  );
 
   storefront = await p2.evaluate(() => {
     const L = window.__konbini.layout;

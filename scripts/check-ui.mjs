@@ -70,11 +70,11 @@ const activeLabels = (page) =>
     JSON.stringify(bar),
   );
 
-  // 2. 初始状态 = 夜晚 / 雨
+  // 2. 初始状态 = 白天 / 雨
   const initial = await activeLabels(page);
   check(
-    '初始高亮为「夜晚 / 雨」',
-    initial.length === 2 && initial.includes('夜晚') && initial.includes('雨'),
+    '初始高亮为「白天 / 雨」',
+    initial.length === 2 && initial.includes('白天') && initial.includes('雨'),
     `active=${initial.join(',')}`,
   );
 
@@ -195,7 +195,7 @@ const activeLabels = (page) =>
     `${camBefore} -> ${camAfter}`);
 
   // 出一张默认状态图
-  await page.evaluate(() => window.__konbini.env.set({ time: 'night', weather: 'rain' }, true));
+  await page.evaluate(() => window.__konbini.env.set({ time: 'day', weather: 'rain' }, true));
   await new Promise((r) => setTimeout(r, 900));
   await page.screenshot({ path: `${outDir}/ui-desktop.png` });
 

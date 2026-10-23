@@ -43,7 +43,7 @@ export interface World {
   setSky: (zenith: number, horizon: number) => void;
 }
 
-export function buildWorld(envInit: EnvState = { time: 'night', weather: 'rain' }): World {
+export function buildWorld(envInit: EnvState = { time: 'day', weather: 'rain' }): World {
   const root = new THREE.Group();
   root.name = 'diorama';
   let mergeEnabled = true;
@@ -53,11 +53,11 @@ export function buildWorld(envInit: EnvState = { time: 'night', weather: 'rain' 
 
   /* ---------------- 环境光 ---------------- */
   // 环境光的具体数值由 Environment 在构造时覆盖；
-  // 这里给的是"夜晚"初值，只为保证第一帧不会闪。
-  const hemi = new THREE.HemisphereLight(0x5a76b4, 0x1a2230, 0.55);
+  // 这里给的是"白天 + 雨"的初值（新默认），只为保证第一帧不会闪。
+  const hemi = new THREE.HemisphereLight(0xc4d8f0, 0x7d7668, 1.55);
   root.add(hemi);
-  const moon = new THREE.DirectionalLight(0xa8bcff, 0.7);
-  moon.position.set(-11, 16, -9);
+  const moon = new THREE.DirectionalLight(0xfff4dd, 1.1);
+  moon.position.set(13, 18, 11);
   moon.castShadow = true;
   moon.shadow.mapSize.set(2048, 2048);
   moon.shadow.camera.near = 1;

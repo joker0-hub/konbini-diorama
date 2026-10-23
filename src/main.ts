@@ -9,6 +9,7 @@ import { buildWorld } from './scene/world';
 import { createCameraRig } from './render/camera';
 import { createPipeline } from './render/pipeline';
 import { createEnvUI } from './ui/envbar';
+import { createCodeOpening } from './ui/intro';
 import { P } from './core/palette';
 import { L } from './scene/layout';
 import type { TimeOfDay, Weather } from './scene/environment';
@@ -39,16 +40,22 @@ void P;
 /**
  * 初始环境由 URL 参数决定：
  *   ?time=day|dusk|night   ?weather=clear|rain|snow
- * 缺省为雨夜 —— 也就是这个作品的主调。
+ * 缺省为「白天 + 雨」—— 雨里亮着灯的便利店，是这组石膏微缩模型的主场景。
  * 加 &instant=1 可让积雪/过渡立刻到位（截图与自动化测试用）。
  */
-function readEnvFromUrl(): { time: TimeOfDay; weather: Weather; instant: boolean } {
+function readEnvFromUrl(): { time: TimeOfDay; weather: Weather; instant: boolean; intro: boolean } {
   const q = new URLSearchParams(location.search);
   const t = q.get('time');
   const w = q.get('weather');
-  const time: TimeOfDay = t === 'day' || t === 'dusk' || t === 'night' ? t : 'night';
+  const time: TimeOfDay = t === 'day' || t === 'dusk' || t === 'night' ? t : 'day';
   const weather: Weather = w === 'clear' || w === 'rain' || w === 'snow' ? w : 'rain';
-  return { time, weather, instant: q.get('instant') === '1' };
+  return {
+    time,
+    weather,
+    instant: q.get('instant') === '1',
+    // ?intro=0 只跳过开场字幕，不影响模型的入场组装
+    intro: q.get('intro') !== '0',
+  };
 }
 const envInit = readEnvFromUrl();
 
@@ -100,6 +107,19 @@ const unsubscribeEnvUI = world.environment.onChange((s) => envUI.setState(s));
 // 页面销毁时解绑（单页应用里无实际意义，但避免热更新时重复订阅）
 window.addEventListener('beforeunload', () => unsubscribeEnvUI());
 
+/* ---------------- 代码开场动画 ---------------- */
+// 一段"正在编译这个场景"的脚本先敲出来，敲完后两扇门滑开，
+// 露出背后已经组装到一半的模型。纯代码生成，没有任何图片/视频资源。
+// ?intro=0 或 ?instant=1 时直接跳过（截图与自动化测试用）。
+const opening = createCodeOpening({
+  disabled:
+    !envInit.intro ||
+    envInit.instant ||
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+  time: envInit.time,
+  weather: envInit.weather,
+});
+
 /* ---------------- 主循环 ---------------- */
 const clock = new THREE.Clock();
 let elapsed = 0;
@@ -127,6 +147,8 @@ declare global {
       renderer: THREE.WebGLRenderer;
       pipeline: typeof pipeline;
       skipIntro: () => void;
+      /** 只跳过代码开场字幕，保留模型的入场组装动画 */
+      skipOpening: () => void;
       view: (pos: [number, number, number], target: [number, number, number]) => void;
       replay: () => void;
       spin: (on: boolean) => void;
@@ -170,7 +192,11 @@ window.__konbini = {
     details: () => world.environment.details(),
   },
   signal: world.signal,
-  skipIntro: () => world.assembly.finishNow(),
+  skipIntro: () => {
+    opening.skip();
+    world.assembly.finishNow();
+  },
+  skipOpening: () => opening.skip(),
   view: (pos, target) => {
     camera.position.set(pos[0], pos[1], pos[2]);
     rig.controls.target.set(target[0], target[1], target[2]);

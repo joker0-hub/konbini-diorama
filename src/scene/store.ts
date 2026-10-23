@@ -18,6 +18,21 @@ const S = L.store;
 export const STORE = S;
 export const DOOR = L.door;
 
+/**
+ * 把一段水平范围按门洞切成左右两段（门洞范围内不生成任何几何）。
+ *
+ * 店门是**滑门**：门扇会横向滑到门洞两侧。任何横跨门洞的静止构件
+ * （踢脚板、磨砂贴膜、横向装饰梁、下沿收边）在门打开后都会留在原位，
+ * 看上去就像门口多了一道"门槛"或一块不会动的门板。所有沿立面的
+ * 通长构件都必须走这个函数，才能保证门洞是真的通透。
+ */
+function frontGaps(a0: number, a1: number, door: { x0: number; x1: number }): [number, number][] {
+  const out: [number, number][] = [];
+  if (door.x0 > a0 + 1e-3) out.push([a0, door.x0]);
+  if (door.x1 < a1 - 1e-3) out.push([door.x1, a1]);
+  return out;
+}
+
 export interface StoreParts {
   root: THREE.Group;
   doorL: THREE.Object3D;
@@ -38,7 +53,11 @@ export function buildStore(root: THREE.Object3D, ctx: SceneCtx): StoreParts {
   /* ============ 地板 / 天花 / 实体墙 ============ */
   addBox(g, toon(0xffffff, { map: TX.interiorFloorTex() }), S.x1 - S.x0, 0.16, S.z1 - S.z0,
     (S.x0 + S.x1) / 2, 0, (S.z0 + S.z1) / 2);
-  addBox(g, trim, S.x1 - S.x0 + 0.1, 0.055, 0.18, (S.x0 + S.x1) / 2, S.floorY - 0.03, S.z1 + 0.05);
+  // 店面下沿的收边条也要在门洞处断开 —— 它只比室内地面高 2.5cm，
+  // 但横在门口时仍会被读成一条"门槛"。门洞内只保留本来就有高差的楼板边。
+  for (const [a, b] of frontGaps(S.x0 - 0.05, S.x1 + 0.05, DOOR)) {
+    addBox(g, trim, b - a, 0.055, 0.18, (a + b) / 2, S.floorY - 0.03, S.z1 + 0.05);
+  }
 
   const ceil = addBox(g, interiorWall, S.x1 - S.x0 - 0.04, 0.1, S.z1 - S.z0 - 0.04,
     (S.x0 + S.x1) / 2, S.ceilY, (S.z0 + S.z1) / 2);
@@ -66,13 +85,31 @@ export function buildStore(root: THREE.Object3D, ctx: SceneCtx): StoreParts {
   // 玻璃磨砂带 + 贴纸。
   // 注意高度：磨砂带只做最下面 ~0.75m（真实便利店也只在踢脚线附近贴膜），
   // 一旦拉到 1.1m 以上，从中景看过去整片玻璃都像糊了层白雾。
+  // 前脸贴膜必须绕开自动门：门扇滑开后，中间若还留一段静止的磨砂膜，
+  // 就会像门口卡着一块不会动的门板（和踢脚板一起构成"门槛"错觉）。
   const filmH = 0.75;
-  const filmW = S.x1 - S.x0 - 0.12;
-  const film = new THREE.Mesh(planeGeo(filmW, filmH), decal(TX.glassFilmTex(), 0.9));
-  film.position.set((S.x0 + S.x1) / 2, S.floorY + filmH / 2 - 0.02, S.z1 + 0.032);
-  film.renderOrder = 6;
-  g.add(film);
-  noOutline(film);
+  const filmY = S.floorY + filmH / 2 - 0.02;
+  const filmMat = decal(TX.glassFilmTex(), 0.9);
+  // 贴膜上的字（ホシノマート / 24時間営業）原本横跨整个前脸。
+  // 切开之后每段不能各自铺满整张贴图，否则左边被横向拉伸、右边被压成
+  // 一条细纹，还会重复出现四张贴纸。这里把每段的 UV 收窄到整张图的
+  // 对应横向区间，门洞只是"挖掉"，图案仍然连续。
+  const filmA = S.x0 + 0.06;
+  const filmB = S.x1 - 0.06;
+  const filmSpan = filmB - filmA;
+  for (const [a, b] of frontGaps(filmA, filmB, DOOR)) {
+    const geo = planeGeo(b - a, filmH).clone();
+    const uv = geo.attributes.uv as THREE.BufferAttribute;
+    const u0 = (a - filmA) / filmSpan;
+    const u1 = (b - filmA) / filmSpan;
+    for (let i = 0; i < uv.count; i++) uv.setX(i, u0 + (u1 - u0) * uv.getX(i));
+    uv.needsUpdate = true;
+    const film = new THREE.Mesh(geo, filmMat);
+    film.position.set((a + b) / 2, filmY, S.z1 + 0.032);
+    film.renderOrder = 6;
+    g.add(film);
+    noOutline(film);
+  }
   const filmSide = new THREE.Mesh(planeGeo(S.z1 - S.z0 - 0.12, filmH), decal(TX.glassFilmTex(), 0.9));
   filmSide.position.set(S.x1 + 0.032, S.floorY + filmH / 2 - 0.02, (S.z0 + S.z1) / 2);
   filmSide.rotation.y = Math.PI / 2;
@@ -355,10 +392,15 @@ function buildFacade(parent: THREE.Object3D, spec: FacadeSpec): THREE.Group {
   };
 
   const kickH = 0.4;
-  {
-    const geo = isZ ? new THREE.BoxGeometry(span, kickH, 0.17) : new THREE.BoxGeometry(0.17, kickH, span);
+  // 踢脚板在门洞处断开。旧版是一整块 span 宽的板，门滑开后它仍然
+  // 横在门口（0.4m 高），正是"看起来像一个门槛"的来源。
+  const spans = spec.door ? frontGaps(spec.a0, spec.a1, spec.door) : [[spec.a0, spec.a1] as [number, number]];
+  for (const [a, b] of spans) {
+    const w = b - a;
+    if (w <= 0.01) continue;
+    const geo = isZ ? new THREE.BoxGeometry(w, kickH, 0.17) : new THREE.BoxGeometry(0.17, kickH, w);
     const m = new THREE.Mesh(geo, kickMat);
-    m.position.set(isZ ? mid : spec.plane, L.store.floorY + kickH / 2, isZ ? spec.plane : mid);
+    m.position.set(isZ ? (a + b) / 2 : spec.plane, L.store.floorY + kickH / 2, isZ ? spec.plane : (a + b) / 2);
     m.castShadow = true;
     f.add(m);
   }
@@ -397,10 +439,17 @@ function buildFacade(parent: THREE.Object3D, spec: FacadeSpec): THREE.Group {
     m.position.set(isZ ? mid : spec.plane, L.store.glassTop - beamH / 2, isZ ? spec.plane : mid);
     m.castShadow = true;
     f.add(m);
-    const m2 = new THREE.Mesh(geo.clone(), trim);
-    m2.position.set(isZ ? mid : spec.plane,
-      L.store.floorY + kickH + (L.store.glassTop - L.store.floorY - kickH) * 0.76, isZ ? spec.plane : mid);
-    f.add(m2);
+    // 中横梁同样不能横穿门洞，否则门扇滑开后它会挂在门洞中间。
+    const beamY = L.store.floorY + kickH + (L.store.glassTop - L.store.floorY - kickH) * 0.76;
+    for (const [a, b] of spans) {
+      const w = b - a;
+      if (w <= 0.01) continue;
+      const g2 = isZ ? new THREE.BoxGeometry(w, beamH, 0.16) : new THREE.BoxGeometry(0.16, beamH, w);
+      const m2 = new THREE.Mesh(g2, trim);
+      m2.position.set(isZ ? (a + b) / 2 : spec.plane, beamY, isZ ? spec.plane : (a + b) / 2);
+      m2.castShadow = true;
+      f.add(m2);
+    }
   }
 
   if (spec.door) {

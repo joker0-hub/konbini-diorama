@@ -341,3 +341,503 @@ html[data-time="day"] {
     transition: none;
   }
 }
+
+/* ============================================================
+ * 代码开场动画
+ *
+ * 一整块深色「编辑器」先盖住画布：脚本逐字敲出，
+ * 敲完后两扇门向左右滑开（和便利店自动门同一个动作语言），
+ * 露出背后正在组装的模型。全部是 DOM + CSS，没有图片/视频。
+ * ============================================================ */
+
+.intro {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  /* 不要给整块遮罩铺底色：滑门时中间必须直接露出背后的画布，
+     否则"开门"只会露出另一块深色底板，最后整块移除时画面会硬切。 */
+  background: transparent;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", "Noto Sans Mono CJK JP", monospace;
+  color: #cfdcee;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.intro.is-open {
+  pointer-events: none;
+}
+
+.intro__leaves {
+  position: absolute;
+  inset: 0;
+  display: flex;
+}
+
+.intro__leaf {
+  position: relative;
+  width: 50%;
+  height: 100%;
+  /* 两扇门用同一条纵向渐变：横向渐变会在中缝处出现色阶断层，
+     看起来像一条从头贯到尾的接缝，压过顶栏的 OPEN 24 HOURS。 */
+  background: linear-gradient(180deg, #0a111d 0%, #070c15 56%, #0b1523 100%);
+  transition: transform 1.05s cubic-bezier(0.76, 0, 0.24, 1);
+  will-change: transform;
+}
+
+/* 门玻璃上淡淡的斜向雨痕（整屏共用一层，滑门时淡出） */
+.intro__leaves::before {
+  content: "";
+  position: absolute;
+  inset: -12%;
+  z-index: 1;
+  background-image: repeating-linear-gradient(
+    104deg,
+    transparent 0 38px,
+    rgba(158, 195, 240, 0.05) 38px 39px,
+    transparent 39px 108px
+  );
+  opacity: 0.85;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+/* 竖向暗角：压住四角，让中缝的暖光更集中 */
+.intro::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: radial-gradient(120% 90% at 50% 50%, transparent 40%, rgba(0, 0, 0, 0.5) 100%);
+  pointer-events: none;
+}
+
+/* 门扇中缝的收边。只留一条从上方 24% 才开始的光线，
+   避免它从顶栏的 OPEN 24 HOURS 中间穿过去。 */
+.intro__leaves::after {
+  content: "";
+  position: absolute;
+  top: 24%;
+  bottom: 18%;
+  left: 50%;
+  width: 1px;
+  margin-left: -0.5px;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    rgba(242, 202, 114, 0.55) 18%,
+    rgba(242, 202, 114, 0.55) 82%,
+    transparent
+  );
+  box-shadow: 0 0 24px rgba(242, 202, 114, 0.28);
+  transition: opacity 0.35s ease;
+}
+
+.intro__content {
+  position: relative;
+  z-index: 2;
+  width: min(900px, calc(100vw - 64px));
+  height: min(620px, calc(100vh - 72px));
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 22px 0;
+  transition: opacity 0.24s ease;
+}
+
+/* ---------------- 顶栏 ---------------- */
+.intro__top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #63758c;
+  white-space: nowrap;
+}
+
+.intro__tag {
+  justify-self: start;
+  color: #7f92a9;
+}
+
+.intro__sign {
+  justify-self: center;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(224, 90, 78, 0.62);
+  color: #eadfc9;
+  font-size: 11px;
+  letter-spacing: 0.42em;
+  /* letter-spacing 会在末字后留一格，视觉上把标题往左拉半格 */
+  text-indent: 0.42em;
+}
+
+.intro__env {
+  justify-self: end;
+  color: #93a8c0;
+  letter-spacing: 0.24em;
+}
+
+/* ---------------- 中段：代码 + 标题 ---------------- */
+.intro__center {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+}
+
+.intro__code {
+  width: min(720px, 100%);
+  border: 1px solid rgba(172, 198, 230, 0.15);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(11, 18, 30, 0.94), rgba(6, 10, 18, 0.94));
+  box-shadow:
+    0 30px 90px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  overflow: hidden;
+  transition: opacity 0.45s ease, filter 0.45s ease, transform 0.45s ease;
+}
+
+.intro__code-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 11px 14px;
+  border-bottom: 1px solid rgba(160, 190, 225, 0.1);
+}
+
+.intro__code-head span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #2b3648;
+}
+
+.intro__code-head span:nth-child(1) {
+  background: #a8544b;
+}
+.intro__code-head span:nth-child(2) {
+  background: #ad8b4d;
+}
+.intro__code-head span:nth-child(3) {
+  background: #5f866d;
+}
+
+.intro__code-head em {
+  margin-left: 8px;
+  font-style: normal;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: #61738a;
+}
+
+.intro__lines {
+  margin: 0;
+  padding: 18px 22px 22px;
+  list-style: none;
+  font-size: clamp(10.5px, 1.18vw, 14px);
+  line-height: 1.9;
+}
+
+.intro__lines li {
+  display: flex;
+  gap: 18px;
+  opacity: 0.3;
+  transition: opacity 0.25s ease;
+}
+
+.intro__lines li.is-active {
+  opacity: 1;
+}
+
+.intro__lines li.is-done {
+  opacity: 0.84;
+}
+
+.intro__ln {
+  flex: 0 0 auto;
+  color: #3c4b5f;
+  font-variant-numeric: tabular-nums;
+}
+
+.intro__src {
+  white-space: pre;
+  color: #c9d7e8;
+}
+
+.intro__lines li.is-active .intro__src::after {
+  content: "";
+  display: inline-block;
+  width: 0.56em;
+  height: 1.02em;
+  margin-left: 3px;
+  vertical-align: -0.16em;
+  background: #f2ca72;
+  box-shadow: 0 0 10px rgba(242, 202, 114, 0.75);
+  animation: intro-caret 1.05s steps(1, end) infinite;
+}
+
+.tok-com {
+  color: #5d7089;
+}
+.tok-kw {
+  color: #f2ca72;
+}
+.tok-str {
+  color: #9fd3a8;
+}
+.tok-fn {
+  color: #82b7ff;
+}
+.tok-num {
+  color: #e3a6ff;
+}
+.tok-prop {
+  color: #c3b3ff;
+}
+
+/* 标题：敲完后浮到代码上方 */
+.intro__title {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  opacity: 0;
+  transform: scale(0.965);
+  transition: opacity 0.55s ease, transform 0.9s cubic-bezier(0.2, 0.7, 0.3, 1);
+  pointer-events: none;
+  text-align: center;
+  isolation: isolate;
+}
+
+/* 标题下面压一层柔和的暗色光晕：既压住背后的代码，
+   也挡住门缝那条细光从字距里穿过去。 */
+.intro__title::before {
+  content: "";
+  position: absolute;
+  inset: -12% -16%;
+  z-index: -1;
+  background: radial-gradient(
+    52% 44% at 50% 50%,
+    rgba(7, 11, 18, 0.96) 0%,
+    rgba(7, 11, 18, 0.72) 38%,
+    rgba(7, 11, 18, 0) 72%
+  );
+}
+
+.intro.is-ready .intro__title {
+  opacity: 1;
+  transform: none;
+}
+
+.intro.is-ready .intro__code {
+  opacity: 0.16;
+  filter: blur(1.2px);
+  transform: scale(0.985);
+}
+
+.intro__title-jp {
+  margin: 0;
+  font-family: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", "Songti SC", serif;
+  font-size: clamp(30px, 4.6vw, 56px);
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  color: #f3e9d6;
+  text-shadow: 0 0 44px rgba(242, 202, 114, 0.2);
+}
+
+.intro__title-en {
+  font-size: 10px;
+  letter-spacing: 0.46em;
+  color: #8fa2ba;
+}
+
+/* ---------------- 底栏 ---------------- */
+.intro__bottom {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #64788f;
+}
+
+.intro__status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 168px;
+  white-space: nowrap;
+}
+
+.intro__status i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #f2ca72;
+  box-shadow: 0 0 10px rgba(242, 202, 114, 0.85);
+  animation: intro-pulse 1.15s ease-in-out infinite;
+}
+
+.intro.is-ready .intro__status i {
+  background: #9fd3a8;
+  box-shadow: 0 0 12px rgba(159, 211, 168, 0.8);
+  animation: none;
+}
+
+.intro__meter {
+  position: relative;
+  flex: 1;
+  height: 1px;
+  background: rgba(160, 190, 225, 0.16);
+  overflow: hidden;
+}
+
+.intro__meter i {
+  position: absolute;
+  inset: 0;
+  transform: scaleX(0);
+  transform-origin: left center;
+  background: linear-gradient(90deg, #e05a4e, #f2ca72 52%, #82b7ff);
+  transition: transform 0.12s linear;
+}
+
+.intro__counter {
+  color: #7b8da4;
+  font-variant-numeric: tabular-nums;
+}
+
+.intro__skip {
+  color: #4d5c70;
+  white-space: nowrap;
+}
+
+/* ---------------- 开关门 ---------------- */
+.intro.is-open .intro__content {
+  opacity: 0;
+  transition: opacity 0.22s ease;
+}
+
+.intro.is-open .intro__leaf--l {
+  transform: translateX(-100.5%);
+}
+
+.intro.is-open .intro__leaf--r {
+  transform: translateX(100.5%);
+}
+
+.intro.is-open .intro__leaves::after {
+  opacity: 0;
+}
+
+.intro.is-open .intro__leaves::before {
+  opacity: 0;
+}
+
+/* 跳过时门滑得更快，但保留方向感 */
+.intro.is-skip .intro__leaf {
+  transition-duration: 0.34s;
+  transition-timing-function: cubic-bezier(0.55, 0, 0.8, 0.25);
+}
+
+@keyframes intro-caret {
+  0%,
+  48% {
+    opacity: 1;
+  }
+  49%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes intro-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (max-width: 720px) {
+  .intro__content {
+    width: calc(100vw - 32px);
+    height: calc(100vh - 40px);
+    padding: 14px 0;
+    gap: 12px;
+  }
+
+  .intro__top {
+    font-size: 9px;
+    letter-spacing: 0.16em;
+  }
+
+  .intro__sign {
+    font-size: 9.5px;
+    letter-spacing: 0.3em;
+  }
+
+  .intro__env {
+    visibility: hidden;
+  }
+
+  .intro__lines {
+    padding: 14px 13px 16px;
+    font-size: clamp(8.6px, 2.3vw, 11.5px);
+    line-height: 1.95;
+  }
+
+  .intro__lines li {
+    gap: 0;
+  }
+
+  .intro__ln {
+    display: none;
+  }
+
+  .intro__title-jp {
+    font-size: clamp(26px, 8vw, 40px);
+    letter-spacing: 0.12em;
+  }
+
+  .intro__title-en {
+    font-size: 8.5px;
+    letter-spacing: 0.3em;
+  }
+
+  .intro__bottom {
+    gap: 10px;
+    font-size: 8.5px;
+    letter-spacing: 0.1em;
+  }
+
+  .intro__status {
+    min-width: 0;
+  }
+
+  .intro__skip {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .intro,
+  .intro * {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+  }
+}
