@@ -1,0 +1,30 @@
+{
+  "name": "konbini-rain-diorama",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Day/dusk/night × clear/rain/snow Japanese convenience store corner - a collectible cel-shaded 3D diorama",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "shots": "node scripts/shoot.mjs",
+    "verify": "node scripts/verify.mjs",
+    "check:ui": "node scripts/check-ui.mjs",
+    "check:env": "node scripts/check-env.mjs",
+    "check:signal": "node scripts/check-signal.mjs"
+  },
+  "dependencies": {
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@types/three": "^0.186.0",
+    "puppeteer-core": "^25.15.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4"
+  }
+}
