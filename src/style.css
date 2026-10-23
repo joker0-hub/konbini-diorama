@@ -1,0 +1,343 @@
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #05070d;
+}
+
+#stage {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+  touch-action: none;
+  cursor: grab;
+}
+
+#stage:active {
+  cursor: grabbing;
+}
+
+/* ============================================================
+ * 底部环境控制台
+ *
+ * 三渲二的作品适合"细线 + 低饱和大面积"的控件，所以这里不用重卡片、
+ * 不用高饱和大按钮：半透明深色底 + 1px 细边 + 背景模糊 + 顶部一线高光。
+ *
+ * 结构上把「时间」和「天气」拆成两条独立的分段轨道。
+ * 旧版把两者塞进同一个胶囊，文案还互相打架（白天叫"晴日"），
+ * 现在标题、图标、轨道都分开，一眼就能看出这是两个维度。
+ * ============================================================ */
+
+:root {
+  --dock-bg-top: rgba(17, 25, 39, 0.8);
+  --dock-bg-bottom: rgba(7, 11, 19, 0.82);
+  --dock-border: rgba(178, 202, 236, 0.17);
+  --dock-border-hover: rgba(190, 216, 252, 0.3);
+  --dock-text: #a7b8ce;
+  --dock-text-dim: #6f8098;
+  --dock-active-bg: rgba(232, 240, 251, 0.94);
+  --dock-active-text: #111a28;
+  --dock-accent: #82b7ff;
+}
+
+html[data-time="dusk"] {
+  --dock-accent: #f3a06a;
+}
+html[data-time="night"] {
+  --dock-accent: #9fb2ff;
+}
+html[data-time="day"] {
+  --dock-accent: #f2ca72;
+}
+
+.envbar {
+  position: fixed;
+  left: 50%;
+  bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  z-index: 20;
+
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 10px 8px 14px;
+
+  border-radius: 16px;
+  border: 1px solid var(--dock-border);
+  background: linear-gradient(180deg, var(--dock-bg-top), var(--dock-bg-bottom));
+  backdrop-filter: blur(18px) saturate(1.22);
+  -webkit-backdrop-filter: blur(18px) saturate(1.22);
+  box-shadow:
+    0 12px 34px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.055);
+
+  font-family: "Hiragino Sans", "Yu Gothic", "Noto Sans JP", system-ui, -apple-system,
+    "Segoe UI", "Microsoft YaHei", sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.015em;
+  color: var(--dock-text);
+
+  opacity: 0.92;
+  transition: opacity 0.28s ease, border-color 0.28s ease, box-shadow 0.28s ease;
+  user-select: none;
+  -webkit-user-select: none;
+  animation: envbar-in 0.52s cubic-bezier(0.2, 0.7, 0.3, 1) 0.08s both;
+}
+
+.envbar:hover,
+.envbar:focus-within {
+  opacity: 1;
+  border-color: var(--dock-border-hover);
+  box-shadow:
+    0 14px 38px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.075);
+}
+
+@keyframes envbar-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 10px);
+  }
+  to {
+    opacity: 0.92;
+    transform: translate(-50%, 0);
+  }
+}
+
+.envbar__brand {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding-right: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  color: var(--dock-text-dim);
+  white-space: nowrap;
+}
+
+.envbar__brand-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dock-accent);
+  box-shadow: 0 0 9px var(--dock-accent);
+  transition: background 0.35s ease, box-shadow 0.35s ease;
+}
+
+.envbar__section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.envbar__section-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--dock-text-dim);
+  white-space: nowrap;
+}
+
+.envbar__group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.045);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.045);
+}
+
+.envbar__divider {
+  width: 1px;
+  height: 26px;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    rgba(170, 195, 230, 0.26),
+    transparent
+  );
+}
+
+.envbar__btn {
+  appearance: none;
+  border: 0;
+  margin: 0;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  touch-action: manipulation;
+  transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.envbar__btn:hover {
+  background: rgba(255, 255, 255, 0.085);
+  color: #e4eefb;
+}
+
+.envbar__btn:focus-visible {
+  outline: 1.5px solid rgba(150, 200, 255, 0.8);
+  outline-offset: 1px;
+}
+
+.envbar__btn.is-active {
+  background: var(--dock-active-bg);
+  color: var(--dock-active-text);
+  font-weight: 600;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.28),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.08);
+}
+
+.envbar__btn.is-active:hover {
+  background: rgba(244, 249, 255, 0.98);
+  color: #0d1520;
+}
+
+.envbar__icon {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--icon, currentColor);
+  opacity: 0.95;
+  transition: color 0.2s ease, opacity 0.2s ease;
+}
+
+.envbar__icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.envbar__btn[data-value="day"] {
+  --icon: #f1c76a;
+}
+.envbar__btn[data-value="dusk"] {
+  --icon: #f39a63;
+}
+.envbar__btn[data-value="night"] {
+  --icon: #a9b8ff;
+}
+.envbar__btn[data-value="clear"] {
+  --icon: #f1c76a;
+}
+.envbar__btn[data-value="rain"] {
+  --icon: #7fb7ff;
+}
+.envbar__btn[data-value="snow"] {
+  --icon: #d9ecff;
+}
+
+/* 选中时浅底会压掉图标颜色；保留色相但稍微加深，保证可读 */
+.envbar__btn.is-active .envbar__icon {
+  filter: saturate(1.15) brightness(0.82);
+}
+
+.envbar__hint {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding-left: 10px;
+  border-left: 1px solid rgba(150, 175, 210, 0.14);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: rgba(150, 170, 200, 0.5);
+}
+
+.envbar__hint span {
+  padding: 2px 4px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 4px;
+}
+
+/* 无障碍实时状态：视觉上隐藏，屏幕阅读器可读 */
+.envbar__live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 620px) {
+  .envbar {
+    width: calc(100vw - 20px);
+    max-width: 382px;
+    box-sizing: border-box;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    padding: 10px 10px 9px;
+    border-radius: 15px;
+    bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  }
+
+  .envbar__brand,
+  .envbar__hint,
+  .envbar__divider {
+    display: none;
+  }
+
+  .envbar__section {
+    width: 100%;
+    gap: 8px;
+  }
+
+  .envbar__section-label {
+    width: 26px;
+    flex: 0 0 26px;
+    font-size: 9.5px;
+  }
+
+  .envbar__group {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .envbar__btn {
+    flex: 1;
+    justify-content: center;
+    gap: 5px;
+    padding: 9px 4px;
+    font-size: 12px;
+  }
+
+  .envbar__icon {
+    width: 15px;
+    height: 15px;
+  }
+}
+
+/* 尊重"减少动效"偏好：不做过场动画 */
+@media (prefers-reduced-motion: reduce) {
+  .envbar {
+    animation: none;
+  }
+  .envbar,
+  .envbar__btn,
+  .envbar__brand-dot,
+  .envbar__icon {
+    transition: none;
+  }
+}
