@@ -34,6 +34,8 @@ interface Bucket {
   receive: boolean;
   renderOrder: number;
   geos: THREE.BufferGeometry[];
+  /** 这个桶里真正被合并的网格。删除时必须按桶删，不能按材质删。 */
+  meshes: THREE.Mesh[];
 }
 
 function isExcluded(obj: THREE.Object3D, exclude: Set<string>): boolean {
@@ -55,7 +57,6 @@ export function mergeStaticMeshes(
 ): { before: number; after: number; buckets: number } {
   const exclude = new Set(opts.excludeNames ?? []);
   const buckets = new Map<string, Bucket>();
-  const victims: THREE.Mesh[] = [];
 
   // 先把世界矩阵更新到最新，否则烘焙出来的位置是旧的
   root.updateMatrixWorld(true);
@@ -75,7 +76,6 @@ export function mergeStaticMeshes(
     // 否则会被并入 merged-static 并从原组摘除，动画就失效了。
     if (m.userData.noMerge) return;
     before++;
-    victims.push(m);
 
     // 用几何体自身 uuid + 材质 uuid 决定桶；几何体可能被多个网格共享，
     // 因此必须在烘焙时 clone。
@@ -96,9 +96,11 @@ export function mergeStaticMeshes(
         receive: m.receiveShadow,
         renderOrder: m.renderOrder,
         geos: [],
+        meshes: [],
       };
       buckets.set(key, b);
     }
+    b.meshes.push(m);
 
     const g = m.geometry.clone();
     // 只保留合并所需的最小属性集，避免不同网格属性集不一致导致合并失败
@@ -154,11 +156,13 @@ export function mergeStaticMeshes(
 
     bucketCount++;
     after -= b.geos.length - 1;
-    // 源头网格的几何是共享缓存，不能 dispose；只从场景里摘掉
-    for (const v of victims) {
-      const vm = v.material as THREE.Material;
-      if (vm === b.material) v.removeFromParent();
-    }
+    // 只摘掉这个桶里确实被合并的网格。
+    // 旧版按“材质相同”删除：同一个材质可能因为 castShadow / receiveShadow /
+    // 图层不同而被分到另一个桶，而那个桶可能只有 1 个网格、根本没合并 ——
+    // 结果它的原件也被一起删掉，表现为“刚生成时在，过一会儿消失”。
+    // 热食柜的柜体就是被这样误删的。
+    // 源头网格的几何是共享缓存，不能 dispose；只从场景里摘掉。
+    for (const v of b.meshes) v.removeFromParent();
   }
 
   // 未被合并的单件仍留在场景里

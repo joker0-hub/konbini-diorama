@@ -369,11 +369,16 @@ function buildGondola(
   const spanZ = z1 - z0;
 
   addBox(g, toon(0xefece2), 0.055, h, spanZ, midX, y, midZ);
-  addBox(g, toon(0xd4d8dd), spanX - 0.02, 0.16, spanZ - 0.02, midX, y + h, midZ, { cast: false });
-  // 顶部分类牌
+  const cap = addBox(g, toon(0xd4d8dd), spanX - 0.02, 0.16, spanZ - 0.02, midX, y + h, midZ, { cast: false });
+  cap.name = 'gondola-cap';
+  // 顶部分类牌：压在货架顶板上，不能悬空。
+  // 旧版放在 y+h+0.3、x 再往外 4cm，离顶板有 14cm 的空隙，
+  // 从街上看起来就像几片没插好的蓝色长条浮在货架上方。
+  const capTop = y + h + 0.16;
   for (const side of [-1, 1]) {
-    addBox(g, toon(0x2f6bd8), 0.02, 0.2, Math.min(1.6, spanZ * 0.7),
-      midX + side * (spanX / 2 + 0.04), y + h + 0.3, midZ, { cast: false });
+    const sign = addBox(g, toon(0x2f6bd8), 0.03, 0.22, Math.min(1.6, spanZ * 0.7),
+      midX + side * (spanX / 2 - 0.02), capTop - 0.02, midZ, { cast: false });
+    sign.name = 'gondola-sign';
   }
   const pop = new THREE.Mesh(planeGeo(spanZ - 0.08, 0.14), decal(TX.popStripTex(), 0.9));
   pop.position.set(midX - spanX / 2 - 0.03, y + h + 0.08, midZ);
@@ -624,13 +629,16 @@ function buildCounter(parent: THREE.Object3D, products: ProductField): void {
   /* ---- 热食柜 ---- */
   const hotX = coffeeX - 0.68;
   const hot = group(g, hotX, topY, zc);
-  addBox(hot, toon(0x363d4a), 0.4, 0.42, 0.4, 0, 0, 0, { r: 0.02 });
-  addBox(hot, glow(0xffd58a, 0.9), 0.32, 0.26, 0.02, 0, 0.07, 0.19, { cast: false });
+  const hotBody = addBox(hot, toon(0x363d4a), 0.4, 0.42, 0.4, 0, 0, 0, { r: 0.02 });
+  hotBody.name = 'hot-case-body';
+  // 发光陈列面 / 玻璃都要比柜体正面再往外 1cm 左右：
+  // 旧版贴在 z=0.19/0.20，和柜体正面（0.20）共面，会 z-fighting。
+  addBox(hot, glow(0xffd58a, 0.9), 0.32, 0.26, 0.02, 0, 0.07, 0.205, { cast: false });
   for (let i = 0; i < 3; i++) {
     addCyl(hot, toon(0xd9a15c), 0.04, 0.04, 0.05, -0.1 + i * 0.1, 0.2, 0.02, { seg: 8 });
   }
   addBox(hot, toon(0xc8d4e0, { transparent: true, opacity: 0.18, side: THREE.DoubleSide }),
-    0.34, 0.24, 0.02, 0, 0.18, 0.2, { cast: false });
+    0.34, 0.24, 0.02, 0, 0.18, 0.215, { cast: false });
 
   /* ---- 柜台后方：背柜（香烟 + 咖啡杯） ---- */
   const backZ = zc - 0.78;

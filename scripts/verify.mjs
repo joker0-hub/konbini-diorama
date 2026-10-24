@@ -197,6 +197,27 @@ check('draw call < 900', stats.calls < 900, JSON.stringify(stats));
 check('三角面 < 900k', stats.triangles < 900000, `${stats.triangles}`);
 check('静态几何已合并', await page.evaluate(() => window.__konbini.world.root.children.some((c) => c.name === 'merged-static')));
 
+// 静态合并不能误删“同材质但没被合并”的单件。
+// 旧版按材质删除，把另一个桶（castShadow 不同、只有一件、根本没合并）的
+// 热食柜柜体也一起删了：开场能看到，几秒后消失。
+const hotAfterMerge = await page.evaluate(() => {
+  const root = window.__konbini.world.root;
+  const body = root.getObjectByName('hot-case-body');
+  if (!body) return { found: false };
+  let visible = true;
+  let p = body;
+  while (p) {
+    if (!p.visible) visible = false;
+    p = p.parent;
+  }
+  return { found: true, visible };
+});
+check(
+  '静态合并后热食柜柜体仍在',
+  hotAfterMerge.found && hotAfterMerge.visible,
+  JSON.stringify(hotAfterMerge),
+);
+
 // ---- 8. 店内实体不得越出玻璃/墙体 ----
 // 这是最容易回归的一类 bug：某个货架或柜台往前挪一点，
 // 就从玻璃里伸到街上。用世界矩阵算包围盒来兜住。
@@ -615,6 +636,86 @@ let storefront = null;
     '门洞里没有多余的静止竖挺（门框）',
     insideJambs.count === 0,
     JSON.stringify(insideJambs),
+  );
+
+  // 自行车坐垫必须压在座管上。旧版座管只到 0.78，坐垫底面在 0.82，
+  // 中间空 4cm，远看就是“坐垫浮在车架上”。
+  const bikeSeats = await p2.evaluate(() => {
+    const root = window.__konbini.world.root;
+    root.updateMatrixWorld(true);
+    const bbox = (o) => {
+      if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+      return o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld);
+    };
+    const bikes = [];
+    root.traverse((o) => {
+      if (o.name === 'bicycle') bikes.push(o);
+    });
+    const bad = [];
+    for (const bike of bikes) {
+      const saddle = bike.getObjectByName('bike-saddle');
+      const post = bike.getObjectByName('bike-seat-post');
+      if (!saddle || !post) {
+        bad.push({ missing: true });
+        continue;
+      }
+      const s = bbox(saddle);
+      const p = bbox(post);
+      const gap = +(s.min.y - p.max.y).toFixed(3);
+      const cx = (p.min.x + p.max.x) / 2;
+      const cz = (p.min.z + p.max.z) / 2;
+      const under =
+        cx >= s.min.x - 0.01 &&
+        cx <= s.max.x + 0.01 &&
+        cz >= s.min.z - 0.01 &&
+        cz <= s.max.z + 0.01;
+      if (gap > 0.005 || !under) bad.push({ gap, under });
+    }
+    return { count: bikes.length, bad };
+  });
+  check(
+    '自行车坐垫与座管相连（坐垫下方没有空隙）',
+    bikeSeats.count === 3 && bikeSeats.bad.length === 0,
+    JSON.stringify(bikeSeats),
+  );
+
+  // 货架顶部的蓝色分类牌必须压在顶板上。旧版悬空 14cm、还往外偏 4cm。
+  const topSigns = await p2.evaluate(() => {
+    const root = window.__konbini.world.root;
+    root.updateMatrixWorld(true);
+    const bbox = (o) => {
+      if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+      return o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld);
+    };
+    const gondolas = [];
+    root.traverse((o) => {
+      if (/^gondola-\d+$/.test(o.name)) gondolas.push(o);
+    });
+    const bad = [];
+    for (const g of gondolas) {
+      const cap = g.getObjectByName('gondola-cap');
+      const signs = [];
+      g.traverse((o) => {
+        if (o.name === 'gondola-sign') signs.push(o);
+      });
+      if (!cap || signs.length === 0) {
+        bad.push({ missing: true });
+        continue;
+      }
+      const c = bbox(cap);
+      for (const sign of signs) {
+        const sb = bbox(sign);
+        const gap = +(sb.min.y - c.max.y).toFixed(3);
+        const overlapX = +(Math.min(sb.max.x, c.max.x) - Math.max(sb.min.x, c.min.x)).toFixed(3);
+        if (gap > 0.005 || overlapX < 0.005) bad.push({ gap, overlapX });
+      }
+    }
+    return { count: gondolas.length, bad };
+  });
+  check(
+    '货架顶部的蓝色分类牌压在顶板上（不悬空）',
+    topSigns.count === 3 && topSigns.bad.length === 0,
+    JSON.stringify(topSigns),
   );
 
   storefront = await p2.evaluate(() => {

@@ -610,8 +610,12 @@ function buildBicycle(parent: THREE.Object3D, x: number, y: number, z: number, r
   strut(g, frame, [-0.5, 0.33, 0], [0.42, 0.33, 0], 0.028, true);
   strut(g, toon(0x8d949c), [0.4, 0.82, 0], [0.42, 0.97, 0], 0.028, true);
   addBox(g, toon(0x1e232b), 0.11, 0.032, 0.44, 0.42, 0.97, 0, { r: 0.02 });
-  addBox(g, toon(0x1e232b), 0.24, 0.065, 0.13, -0.06, 0.82, 0, { r: 0.04 });
-  strut(g, toon(0x8d949c), [-0.06, 0.78, 0], [-0.02, 0.58, 0], 0.028, true);
+  const saddle = addBox(g, toon(0x1e232b), 0.24, 0.065, 0.13, -0.06, 0.82, 0, { r: 0.04 });
+  saddle.name = 'bike-saddle';
+  // 座管顶端必须顶到坐垫底面（0.82）。旧版停在 0.78，坐垫下面空 4cm，
+  // 远看就是"坐垫浮在车架上"。
+  const seatPost = strut(g, toon(0x8d949c), [-0.06, 0.82, 0], [-0.02, 0.58, 0], 0.028, true);
+  seatPost.name = 'bike-seat-post';
   // 车筐
   const basket = group(g, 0.55, 0.68, 0);
   addBox(basket, toon(0x8d949c), 0.26, 0.19, 0.32, 0, 0, 0);
