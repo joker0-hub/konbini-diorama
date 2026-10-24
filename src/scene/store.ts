@@ -409,7 +409,17 @@ function buildFacade(parent: THREE.Object3D, spec: FacadeSpec): THREE.Group {
   const n = Math.max(2, Math.round(span / 2.0));
   for (let i = 0; i <= n; i++) studs.push(spec.a0 + (span * i) / n);
   if (spec.door) studs.push(spec.door.x0, spec.door.x1);
-  const uniq = Array.from(new Set(studs.map((v) => Math.round(v * 1000) / 1000))).sort((a, b) => a - b);
+  // 均分出来的竖挺会落在门洞正中间（本项目的门洞 0.15..1.75 里会分到 0.30）。
+  // 那是一根静止的立柱，门扇滑开后它仍戳在门洞里 —— 看上去就是「多了一个门框」。
+  // 门洞内只保留两侧的门边挺，内部的均分竖挺一律删掉。
+  const uniq = Array.from(
+    new Set(
+      (spec.door
+        ? studs.filter((v) => v <= spec.door!.x0 + 1e-3 || v >= spec.door!.x1 - 1e-3)
+        : studs
+      ).map((v) => Math.round(v * 1000) / 1000),
+    ),
+  ).sort((a, b) => a - b);
 
   const glassMat = glass();
   for (let i = 0; i < uniq.length - 1; i++) {

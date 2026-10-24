@@ -577,6 +577,46 @@ let storefront = null;
     JSON.stringify(doorway),
   );
 
+  // 门洞内部的均分竖挺：立面上每隔 2m 分一根竖挺，会正好分到门洞里一根。
+  // 门扇滑开后它仍戳在门洞中间，看起来就是「多了一个门框」。
+  // 门洞内的静止立柱必须一根都不剩（两侧门边挺在门洞边界上，不算）。
+  const insideJambs = await p2.evaluate(() => {
+    const L = window.__konbini.layout;
+    const door = L.door;
+    const root = window.__konbini.world.root;
+    root.updateMatrixWorld(true);
+    const bad = [];
+    root.traverse((o) => {
+      if (!o.isMesh || !o.geometry) return;
+      let p = o;
+      while (p) {
+        if (p.name === 'auto-door' || p.name === 'rain-layer' || p.name === 'snow-layer') return;
+        p = p.parent;
+      }
+      const m = o.material;
+      if (!m || m.transparent || m.opacity < 0.5) return;
+      if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+      const bb = o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld);
+      const w = bb.max.x - bb.min.x;
+      const overlap = Math.min(bb.max.x, door.x1 - 0.02) - Math.max(bb.min.x, door.x0 + 0.02);
+      const inZ = bb.max.z > L.store.z1 - 0.16 && bb.min.z < L.store.z1 + 0.18;
+      const inY = bb.max.y > 0.3 && bb.min.y < 2.2;
+      // 只看竖挺：窄、且整根都落在门洞内侧
+      if (w < 0.3 && overlap > w * 0.9 && inZ && inY) {
+        bad.push({
+          x: [+bb.min.x.toFixed(2), +bb.max.x.toFixed(2)],
+          y: [+bb.min.y.toFixed(2), +bb.max.y.toFixed(2)],
+        });
+      }
+    });
+    return { door: [door.x0, door.x1], count: bad.length, bad: bad.slice(0, 6) };
+  });
+  check(
+    '门洞里没有多余的静止竖挺（门框）',
+    insideJambs.count === 0,
+    JSON.stringify(insideJambs),
+  );
+
   storefront = await p2.evaluate(() => {
     const L = window.__konbini.layout;
     const S = L.store;

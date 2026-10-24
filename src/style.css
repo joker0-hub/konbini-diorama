@@ -343,34 +343,33 @@ html[data-time="day"] {
 }
 
 /* ============================================================
- * 代码开场动画
+ * IDE 式代码开场 + 标题卡
  *
- * 一整块深色「编辑器」先盖住画布：脚本逐字敲出，
- * 敲完后两扇门向左右滑开（和便利店自动门同一个动作语言），
- * 露出背后正在组装的模型。全部是 DOM + CSS，没有图片/视频。
+ * 第一层：背后两扇门（标题卡和最后的开门用）。
+ * 第二层：一张铺满屏幕的 IntelliJ IDEA 窗口 —— 代码分两段输出。
+ * 第三层：标题卡，没有按钮，停一拍后自动开门。
+ *
+ * 颜色分工：IDE 是冷灰 + 橙色关键字 + 蓝色动作，
+ * 和画面里便利店的暖光形成"写代码 → 进现场"的对照。
  * ============================================================ */
 
 .intro {
   position: fixed;
   inset: 0;
   z-index: 60;
-  display: grid;
-  place-items: center;
   overflow: hidden;
-  /* 不要给整块遮罩铺底色：滑门时中间必须直接露出背后的画布，
-     否则"开门"只会露出另一块深色底板，最后整块移除时画面会硬切。 */
+  /* 不要给整块遮罩铺底色：开门后必须直接露出背后的画布。
+     IDE 窗口自己是不透明的，标题卡则借两扇门当背景。 */
   background: transparent;
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
-    "Liberation Mono", "Noto Sans Mono CJK JP", monospace;
-  color: #cfdcee;
+  font-family: "Inter", "Segoe UI", "Hiragino Sans", "Noto Sans JP", "Microsoft YaHei",
+    system-ui, sans-serif;
+  color: #cfd8e3;
   user-select: none;
   -webkit-user-select: none;
 }
 
-.intro.is-open {
-  pointer-events: none;
-}
-
+/* 门扇中缝的暖光。只留一条从上方 24% 才开始的光线，
+   避免它从标题卡顶栏的 OPEN 24 HOURS 中间穿过去。 */
 .intro__leaves {
   position: absolute;
   inset: 0;
@@ -381,8 +380,7 @@ html[data-time="day"] {
   position: relative;
   width: 50%;
   height: 100%;
-  /* 两扇门用同一条纵向渐变：横向渐变会在中缝处出现色阶断层，
-     看起来像一条从头贯到尾的接缝，压过顶栏的 OPEN 24 HOURS。 */
+  /* 两扇门用同一条纵向渐变：横向渐变会在中缝处出现色阶断层 */
   background: linear-gradient(180deg, #0a111d 0%, #070c15 56%, #0b1523 100%);
   transition: transform 1.05s cubic-bezier(0.76, 0, 0.24, 1);
   will-change: transform;
@@ -405,18 +403,6 @@ html[data-time="day"] {
   pointer-events: none;
 }
 
-/* 竖向暗角：压住四角，让中缝的暖光更集中 */
-.intro::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  background: radial-gradient(120% 90% at 50% 50%, transparent 40%, rgba(0, 0, 0, 0.5) 100%);
-  pointer-events: none;
-}
-
-/* 门扇中缝的收边。只留一条从上方 24% 才开始的光线，
-   避免它从顶栏的 OPEN 24 HOURS 中间穿过去。 */
 .intro__leaves::after {
   content: "";
   position: absolute;
@@ -436,20 +422,729 @@ html[data-time="day"] {
   transition: opacity 0.35s ease;
 }
 
-.intro__content {
-  position: relative;
+/* 竖向暗角：压住四角，让中缝的暖光更集中 */
+.intro::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: radial-gradient(120% 90% at 50% 50%, transparent 40%, rgba(0, 0, 0, 0.5) 100%);
+  pointer-events: none;
+  transition: opacity 0.55s ease;
+}
+
+.intro.is-open {
+  pointer-events: none;
+}
+
+.intro.is-open .intro__leaf--l {
+  transform: translateX(-100.5%);
+}
+
+.intro.is-open .intro__leaf--r {
+  transform: translateX(100.5%);
+}
+
+.intro.is-open .intro__leaves::after,
+.intro.is-open .intro__leaves::before,
+.intro.is-open::after,
+.intro.is-open .intro__splash {
+  opacity: 0;
+}
+
+/* 跳过时门滑得更快，但保留方向感 */
+.intro.is-skip .intro__leaf {
+  transition-duration: 0.34s;
+  transition-timing-function: cubic-bezier(0.55, 0, 0.8, 0.25);
+}
+
+/* ============================================================
+ * IDE 窗口（浮在暗背景上，不铺满屏幕）
+ * ============================================================ */
+
+/* 窗口背后的压暗层：让门扇退到背景里，只留一点雨痕和门缝的光 */
+.intro__shade {
+  position: absolute;
+  inset: 0;
   z-index: 2;
-  width: min(900px, calc(100vw - 64px));
-  height: min(620px, calc(100vh - 72px));
+  background:
+    radial-gradient(72% 58% at 50% 42%, rgba(22, 34, 52, 0.42), rgba(3, 6, 10, 0.88) 72%),
+    rgba(3, 6, 10, 0.55);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  transition: opacity 0.55s ease;
+  pointer-events: none;
+}
+
+.intro.is-splash .intro__shade {
+  opacity: 0;
+}
+
+.intro__ide {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 4;
+  width: min(980px, calc(100vw - 72px));
+  height: min(650px, calc(100vh - 72px));
+  display: grid;
+  grid-template-rows: 44px 38px minmax(0, 1fr) 38px auto auto;
+  border-radius: 14px;
+  border: 1px solid #2b3442;
+  overflow: hidden;
+  background:
+    radial-gradient(115% 80% at 16% -12%, rgba(66, 100, 160, 0.12), transparent 62%),
+    #080b10;
+  box-shadow:
+    0 42px 120px rgba(0, 0, 0, 0.72),
+    0 12px 36px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.03),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  transition: opacity 0.5s ease, transform 0.65s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: opacity, transform;
+}
+
+.intro.is-splash .intro__ide {
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(1.02);
+  pointer-events: none;
+  /* 同时也把窗口里的按钮/输入框从 Tab 顺序里摘掉 */
+  visibility: hidden;
+  transition: opacity 0.5s ease, transform 0.65s cubic-bezier(0.4, 0, 0.2, 1),
+    visibility 0s linear 0.5s;
+}
+
+/* 从标题卡点跳过时，窗口也要立刻让路 */
+.intro.is-open .intro__ide {
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.intro.is-open .intro__shade {
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+/* ---------------- 顶部窗口栏 ---------------- */
+
+.ide__bar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 14px;
+  background: #10141a;
+  border-bottom: 1px solid #1a2029;
+}
+
+/* 左上角的红黄绿：纯装饰，没有交互（用户明确要求） */
+.ide__lights {
+  display: flex;
+  gap: 8px;
+  margin-right: 8px;
+  flex: 0 0 auto;
+}
+
+.ide__lights i {
+  display: block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+
+.ide__lights i:nth-child(1) {
+  background: #ff5f57;
+}
+.ide__lights i:nth-child(2) {
+  background: #febc2e;
+}
+.ide__lights i:nth-child(3) {
+  background: #28c840;
+}
+
+.ide__title {
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: #c7d2df;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ide__title em {
+  font-style: normal;
+  margin-left: 7px;
+  color: #76849a;
+}
+
+.ide__top-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.ide__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 11px;
+  border-radius: 7px;
+  border: 1px solid #2a3340;
+  background: #171d26;
+  color: #b6c4d5;
+  font: inherit;
+  font-size: 11.5px;
+  line-height: 1;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+.ide__chip:hover {
+  background: #1f2732;
+  border-color: #3b4859;
+  color: #e8f0fa;
+}
+
+.ide__chip:active {
+  transform: translateY(1px);
+}
+
+.ide__chip:focus-visible {
+  outline: 2px solid rgba(120, 170, 255, 0.85);
+  outline-offset: 2px;
+}
+
+.ide__chip--reveal .ide__ico {
+  color: #ff9a4c;
+}
+
+.ide__ico {
+  display: block;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+/* ---------------- 文件标签 + STEP ---------------- */
+
+.ide__tabs {
+  display: flex;
+  align-items: stretch;
+  padding-left: 22px;
+  background: #0c1015;
+  border-bottom: 1px solid #1a2029;
+  min-width: 0;
+}
+
+.ide__tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 0 15px;
+  font-size: 12px;
+  color: #6f7d90;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.ide__tab.is-active {
+  background: #080b10;
+  color: #e3ebf5;
+}
+
+.ide__tab.is-active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: #e05252;
+}
+
+.ide__step {
+  margin-left: auto;
+  align-self: center;
+  padding-right: 16px;
+  font-size: 10.5px;
+  letter-spacing: 0.07em;
+  color: #d4dfec;
+  white-space: nowrap;
+}
+
+.ide__step b {
+  color: #f0a45f;
+  font-weight: 600;
+}
+
+/* ---------------- 代码区 ---------------- */
+
+.ide__code {
+  position: relative;
+  overflow: auto;
+  padding: 10px 0 16px;
+  scrollbar-width: thin;
+  scrollbar-color: #2b3644 transparent;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.014), transparent 46%);
+}
+
+.ide__code::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+
+.ide__code::-webkit-scrollbar-thumb {
+  background: #28313d;
+  border: 3px solid transparent;
+  border-radius: 6px;
+  background-clip: content-box;
+}
+
+.ide__rows {
+  display: inline-block;
+  min-width: 100%;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono",
+    "Noto Sans Mono CJK JP", monospace;
+  font-size: clamp(10.5px, 1.35vw, 13.5px);
+  font-variant-ligatures: none;
+}
+
+.ide__row {
+  display: flex;
+  align-items: baseline;
+  line-height: 1.6;
+  white-space: pre;
+}
+
+.ide__ln {
+  flex: 0 0 auto;
+  width: 4.2em;
+  padding-right: 1.35em;
+  text-align: right;
+  color: #46515f;
+  font-variant-numeric: tabular-nums;
+}
+
+.ide__src {
+  white-space: pre;
+  padding-right: 3em;
+}
+
+/* 第一段逐行落下；第二段点「继续」之后才出现 */
+.ide__row.is-pending {
+  display: none;
+}
+
+.ide__row.is-new {
+  animation: ide-row-in 0.34s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+  animation-delay: calc(var(--i, 0) * 16ms);
+}
+
+@keyframes ide-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.ide__caret {
+  display: inline-block;
+  width: 0.58em;
+  height: 1.06em;
+  margin-left: 2px;
+  vertical-align: -0.18em;
+  background: #7fb2ff;
+  box-shadow: 0 0 10px rgba(127, 178, 255, 0.65);
+  animation: ide-caret 1.05s steps(1, end) infinite;
+}
+
+@keyframes ide-caret {
+  0%,
+  48% {
+    opacity: 1;
+  }
+  49%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.tok-com {
+  color: #5d6c80;
+}
+.tok-kw {
+  color: #ff8a5c;
+}
+.tok-type {
+  color: #6fc7ff;
+}
+.tok-str {
+  color: #ff8f7a;
+}
+.tok-fn {
+  color: #8ab4ff;
+}
+.tok-num {
+  color: #d9a8ff;
+}
+.tok-prop {
+  color: #dbe6f3;
+}
+.tok-var {
+  color: #c9d6e6;
+}
+
+/* ---------------- 日志条 ---------------- */
+
+.ide__log {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 14px;
+  background: #0b0f14;
+  border-top: 1px solid #1a2029;
+  font-size: 12px;
+  color: #9fadbe;
+  min-width: 0;
+}
+
+.ide__log-text {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ide__log-text b {
+  font-weight: 600;
+}
+
+.ide__log-text .is-info {
+  color: #cdd9e7;
+}
+
+.ide__log-text .is-ready {
+  color: #8fd6a2;
+}
+
+.ide__tools {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.ide__tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 7px;
+  background: #151b23;
+  border: 1px solid #252e3a;
+  color: #8b9aac;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+
+.ide__tool:hover {
+  background: #1c2532;
+  border-color: #364356;
+  color: #dce7f4;
+}
+
+.ide__tool:focus-visible {
+  outline: 2px solid rgba(120, 170, 255, 0.8);
+  outline-offset: 1px;
+}
+
+.ide__tool.is-on {
+  background: #1b2a41;
+  border-color: #3f6df6;
+  color: #eaf1ff;
+}
+
+.ide__tool.is-on .ide__ico {
+  color: #8fb4ff;
+}
+
+.ide__tool .ide__ico {
+  width: 13px;
+  height: 13px;
+}
+
+/* ---------------- 工作状态 / 使用说明 的小浮层 ---------------- */
+
+.ide__pop {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  z-index: 7;
+  width: min(350px, calc(100vw - 44px));
+  padding: 12px 14px 13px;
+  border-radius: 10px;
+  border: 1px solid #2b3644;
+  background: #0e141c;
+  box-shadow:
+    0 18px 46px rgba(0, 0, 0, 0.62),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  transform-origin: bottom right;
+  animation: ide-pop-in 0.16s ease-out both;
+}
+
+.ide__pop[hidden] {
+  display: none;
+}
+
+.ide__pop::after {
+  content: "";
+  position: absolute;
+  right: 26px;
+  bottom: -5px;
+  width: 8px;
+  height: 8px;
+  background: #0e141c;
+  border-right: 1px solid #2b3644;
+  border-bottom: 1px solid #2b3644;
+  transform: rotate(45deg);
+}
+
+@keyframes ide-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.ide__pop-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 9px;
+}
+
+.ide__pop-title {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: #e2ebf6;
+}
+
+.ide__pop-hint {
+  margin-left: auto;
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  color: #64748a;
+  white-space: nowrap;
+}
+
+.ide__pop-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #7b8ba0;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ide__pop-close:hover {
+  background: #1c2532;
+  color: #e2ebf6;
+}
+
+.ide__pop-close:focus-visible {
+  outline: 2px solid rgba(120, 170, 255, 0.8);
+  outline-offset: 1px;
+}
+
+.ide__pop-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.ide__pop-list li {
+  position: relative;
+  padding-left: 13px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #a9b8ca;
+}
+
+.ide__pop-list li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.55em;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #3f6df6;
+  box-shadow: 0 0 8px rgba(63, 109, 246, 0.7);
+}
+
+/* ---------------- 终端 + 主按钮 ---------------- */
+
+.ide__term {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px 6px;
+  background: #080b10;
+}
+
+.ide__prompt {
+  flex: 0 0 auto;
+  color: #7ad18a;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.ide__cmd {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  padding: 0 13px;
+  border-radius: 9px;
+  border: 1px solid #252e3a;
+  background: #0d1218;
+  color: #e6eef8;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.ide__cmd::placeholder {
+  color: #5a687a;
+}
+
+.ide__cmd:focus {
+  border-color: #3d6bf5;
+  box-shadow: 0 0 0 3px rgba(61, 107, 245, 0.18);
+}
+
+.ide__go {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 8px;
+  background: #3d6bf5;
+  color: #fff;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow:
+    0 8px 26px rgba(61, 107, 245, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  transition: background 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.ide__go em {
+  font-style: normal;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.ide__go:hover {
+  background: #4a78ff;
+  transform: translateY(-1px);
+}
+
+.ide__go:active {
+  transform: none;
+}
+
+.ide__go:focus-visible {
+  outline: 2px solid #a9c4ff;
+  outline-offset: 2px;
+}
+
+.ide__go.is-armed {
+  outline: 2px solid #bcd0ff;
+  outline-offset: 2px;
+  box-shadow:
+    0 0 0 3px rgba(61, 107, 245, 0.38),
+    0 10px 34px rgba(61, 107, 245, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.ide__caption {
+  margin: 0;
+  padding: 0 14px 8px;
+  background: #080b10;
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  color: #556273;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ============================================================
+ * 标题卡（没有按钮）
+ * ============================================================ */
+
+.intro__splash {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: 18px;
-  padding: 22px 0;
-  transition: opacity 0.24s ease;
+  padding: clamp(16px, 3.2vh, 30px) clamp(18px, 4.2vw, 56px) clamp(18px, 3.4vh, 34px);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.5s ease, visibility 0s linear 0.5s;
+  pointer-events: none;
 }
 
-/* ---------------- 顶栏 ---------------- */
+.intro.is-splash .intro__splash {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.6s ease 0.12s;
+}
+
 .intro__top {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
@@ -474,7 +1169,6 @@ html[data-time="day"] {
   color: #eadfc9;
   font-size: 11px;
   letter-spacing: 0.42em;
-  /* letter-spacing 会在末字后留一格，视觉上把标题往左拉半格 */
   text-indent: 0.42em;
 }
 
@@ -484,145 +1178,20 @@ html[data-time="day"] {
   letter-spacing: 0.24em;
 }
 
-/* ---------------- 中段：代码 + 标题 ---------------- */
-.intro__center {
+.intro__title {
   position: relative;
   flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 0;
-}
-
-.intro__code {
-  width: min(720px, 100%);
-  border: 1px solid rgba(172, 198, 230, 0.15);
-  border-radius: 12px;
-  background: linear-gradient(180deg, rgba(11, 18, 30, 0.94), rgba(6, 10, 18, 0.94));
-  box-shadow:
-    0 30px 90px rgba(0, 0, 0, 0.55),
-    inset 0 1px 0 rgba(255, 255, 255, 0.035);
-  overflow: hidden;
-  transition: opacity 0.45s ease, filter 0.45s ease, transform 0.45s ease;
-}
-
-.intro__code-head {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 11px 14px;
-  border-bottom: 1px solid rgba(160, 190, 225, 0.1);
-}
-
-.intro__code-head span {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #2b3648;
-}
-
-.intro__code-head span:nth-child(1) {
-  background: #a8544b;
-}
-.intro__code-head span:nth-child(2) {
-  background: #ad8b4d;
-}
-.intro__code-head span:nth-child(3) {
-  background: #5f866d;
-}
-
-.intro__code-head em {
-  margin-left: 8px;
-  font-style: normal;
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  color: #61738a;
-}
-
-.intro__lines {
-  margin: 0;
-  padding: 18px 22px 22px;
-  list-style: none;
-  font-size: clamp(10.5px, 1.18vw, 14px);
-  line-height: 1.9;
-}
-
-.intro__lines li {
-  display: flex;
-  gap: 18px;
-  opacity: 0.3;
-  transition: opacity 0.25s ease;
-}
-
-.intro__lines li.is-active {
-  opacity: 1;
-}
-
-.intro__lines li.is-done {
-  opacity: 0.84;
-}
-
-.intro__ln {
-  flex: 0 0 auto;
-  color: #3c4b5f;
-  font-variant-numeric: tabular-nums;
-}
-
-.intro__src {
-  white-space: pre;
-  color: #c9d7e8;
-}
-
-.intro__lines li.is-active .intro__src::after {
-  content: "";
-  display: inline-block;
-  width: 0.56em;
-  height: 1.02em;
-  margin-left: 3px;
-  vertical-align: -0.16em;
-  background: #f2ca72;
-  box-shadow: 0 0 10px rgba(242, 202, 114, 0.75);
-  animation: intro-caret 1.05s steps(1, end) infinite;
-}
-
-.tok-com {
-  color: #5d7089;
-}
-.tok-kw {
-  color: #f2ca72;
-}
-.tok-str {
-  color: #9fd3a8;
-}
-.tok-fn {
-  color: #82b7ff;
-}
-.tok-num {
-  color: #e3a6ff;
-}
-.tok-prop {
-  color: #c3b3ff;
-}
-
-/* 标题：敲完后浮到代码上方 */
-.intro__title {
-  position: absolute;
-  inset: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  opacity: 0;
-  transform: scale(0.965);
-  transition: opacity 0.55s ease, transform 0.9s cubic-bezier(0.2, 0.7, 0.3, 1);
-  pointer-events: none;
+  gap: clamp(10px, 1.6vh, 18px);
   text-align: center;
   isolation: isolate;
+  min-height: 0;
 }
 
-/* 标题下面压一层柔和的暗色光晕：既压住背后的代码，
-   也挡住门缝那条细光从字距里穿过去。 */
+/* 标题下面一层柔和的暗色光晕：压住背后的门缝细光 */
 .intro__title::before {
   content: "";
   position: absolute;
@@ -634,17 +1203,6 @@ html[data-time="day"] {
     rgba(7, 11, 18, 0.72) 38%,
     rgba(7, 11, 18, 0) 72%
   );
-}
-
-.intro.is-ready .intro__title {
-  opacity: 1;
-  transform: none;
-}
-
-.intro.is-ready .intro__code {
-  opacity: 0.16;
-  filter: blur(1.2px);
-  transform: scale(0.985);
 }
 
 .intro__title-jp {
@@ -663,11 +1221,10 @@ html[data-time="day"] {
   color: #8fa2ba;
 }
 
-/* ---------------- 底栏 ---------------- */
 .intro__bottom {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 18px;
   font-size: 10px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -678,7 +1235,6 @@ html[data-time="day"] {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-width: 168px;
   white-space: nowrap;
 }
 
@@ -686,15 +1242,8 @@ html[data-time="day"] {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #f2ca72;
-  box-shadow: 0 0 10px rgba(242, 202, 114, 0.85);
-  animation: intro-pulse 1.15s ease-in-out infinite;
-}
-
-.intro.is-ready .intro__status i {
   background: #9fd3a8;
   box-shadow: 0 0 12px rgba(159, 211, 168, 0.8);
-  animation: none;
 }
 
 .intro__meter {
@@ -708,10 +1257,9 @@ html[data-time="day"] {
 .intro__meter i {
   position: absolute;
   inset: 0;
-  transform: scaleX(0);
   transform-origin: left center;
+  transition: transform 0.6s cubic-bezier(0.2, 0.7, 0.3, 1);
   background: linear-gradient(90deg, #e05a4e, #f2ca72 52%, #82b7ff);
-  transition: transform 0.12s linear;
 }
 
 .intro__counter {
@@ -719,66 +1267,158 @@ html[data-time="day"] {
   font-variant-numeric: tabular-nums;
 }
 
-.intro__skip {
-  color: #4d5c70;
-  white-space: nowrap;
-}
+/* ============================================================
+ * 响应式
+ * ============================================================ */
 
-/* ---------------- 开关门 ---------------- */
-.intro.is-open .intro__content {
-  opacity: 0;
-  transition: opacity 0.22s ease;
-}
-
-.intro.is-open .intro__leaf--l {
-  transform: translateX(-100.5%);
-}
-
-.intro.is-open .intro__leaf--r {
-  transform: translateX(100.5%);
-}
-
-.intro.is-open .intro__leaves::after {
-  opacity: 0;
-}
-
-.intro.is-open .intro__leaves::before {
-  opacity: 0;
-}
-
-/* 跳过时门滑得更快，但保留方向感 */
-.intro.is-skip .intro__leaf {
-  transition-duration: 0.34s;
-  transition-timing-function: cubic-bezier(0.55, 0, 0.8, 0.25);
-}
-
-@keyframes intro-caret {
-  0%,
-  48% {
-    opacity: 1;
+@media (max-width: 760px) {
+  .intro__ide {
+    /* 手机上不放"浮窗"了：留 10px 边距，把可读性放在第一位 */
+    width: calc(100vw - 20px);
+    height: calc(100vh - 20px);
+    border-radius: 12px;
+    grid-template-rows: 44px 40px minmax(0, 1fr) 38px auto auto;
   }
-  49%,
-  100% {
-    opacity: 0;
-  }
-}
 
-@keyframes intro-pulse {
-  0%,
-  100% {
-    opacity: 1;
+  .ide__bar {
+    gap: 7px;
+    padding: 0 10px;
   }
-  50% {
-    opacity: 0.35;
-  }
-}
 
-@media (max-width: 720px) {
-  .intro__content {
-    width: calc(100vw - 32px);
-    height: calc(100vh - 40px);
-    padding: 14px 0;
-    gap: 12px;
+  .ide__lights {
+    gap: 6px;
+    margin-right: 2px;
+  }
+
+  .ide__lights i {
+    width: 9px;
+    height: 9px;
+  }
+
+  .ide__title {
+    font-size: 10.5px;
+  }
+
+  .ide__title em {
+    display: none;
+  }
+
+  .ide__chip {
+    gap: 5px;
+    padding: 7px 9px;
+    font-size: 10.5px;
+  }
+
+  .ide__chip .ide__ico {
+    width: 12px;
+    height: 12px;
+  }
+
+  .ide__tabs {
+    padding-left: 12px;
+  }
+
+  .ide__tab {
+    padding: 0 11px;
+    font-size: 10.5px;
+  }
+
+  .ide__tab:not(.is-active) {
+    display: none;
+  }
+
+  .ide__step {
+    padding-right: 12px;
+    font-size: 9.5px;
+    letter-spacing: 0.05em;
+  }
+
+  .ide__step-label {
+    display: none;
+  }
+
+  .ide__rows {
+    font-size: 10px;
+    line-height: 1.7;
+  }
+
+  .ide__ln {
+    width: 3.2em;
+    padding-right: 0.9em;
+  }
+
+  .ide__src {
+    padding-right: 1.6em;
+  }
+
+  .ide__log {
+    padding: 0 12px;
+    font-size: 10px;
+  }
+
+  /* 手机上保留两个按钮，但只显示图标：日志文字让位给它们 */
+  .ide__tools {
+    display: flex;
+    gap: 6px;
+  }
+
+  .ide__tool {
+    justify-content: center;
+    min-width: 30px;
+    padding: 8px;
+  }
+
+  .ide__tool > span {
+    display: none;
+  }
+
+  .ide__pop {
+    width: min(330px, calc(100vw - 40px));
+    padding: 11px 12px 12px;
+  }
+
+  .ide__term {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 12px 6px;
+  }
+
+  .ide__prompt {
+    display: none;
+  }
+
+  .ide__cmd {
+    flex: 1 0 100%;
+    height: 42px;
+    padding: 0 11px;
+    font-size: 10.5px;
+  }
+
+  .ide__cmd::placeholder {
+    color: #4f5d6f;
+  }
+
+  .ide__go {
+    flex: 1 1 100%;
+    height: 42px;
+    padding: 0 13px;
+    font-size: 12.5px;
+    text-align: center;
+  }
+
+  .ide__go em {
+    font-size: 10px;
+  }
+
+  .ide__caption {
+    padding: 0 12px 8px;
+    font-size: 9.5px;
+    line-height: 1.45;
+    white-space: normal;
+  }
+
+  .intro__splash {
+    padding: 14px 16px 18px;
   }
 
   .intro__top {
@@ -793,20 +1433,6 @@ html[data-time="day"] {
 
   .intro__env {
     visibility: hidden;
-  }
-
-  .intro__lines {
-    padding: 14px 13px 16px;
-    font-size: clamp(8.6px, 2.3vw, 11.5px);
-    line-height: 1.95;
-  }
-
-  .intro__lines li {
-    gap: 0;
-  }
-
-  .intro__ln {
-    display: none;
   }
 
   .intro__title-jp {
@@ -824,13 +1450,52 @@ html[data-time="day"] {
     font-size: 8.5px;
     letter-spacing: 0.1em;
   }
+}
 
-  .intro__status {
-    min-width: 0;
+/* 横屏手机 / 很矮的窗口：先牺牲说明文字，保证代码和按钮都在视野里 */
+@media (max-height: 560px) {
+  .intro__ide {
+    /* 横屏手机：高度只有 390 上下，浮窗会挤到没法用，改成贴边 12px */
+    width: calc(100vw - 24px);
+    height: calc(100vh - 24px);
+    grid-template-rows: 40px 36px minmax(0, 1fr) 34px auto 0;
   }
 
-  .intro__skip {
+  .ide__caption {
     display: none;
+  }
+
+  .ide__code {
+    padding: 6px 0 10px;
+  }
+
+  .ide__rows {
+    font-size: 9px;
+  }
+
+  .ide__row {
+    line-height: 1.55;
+  }
+
+  .ide__ln {
+    width: 3em;
+  }
+
+  .ide__term {
+    padding: 6px 12px 6px;
+  }
+
+  .ide__cmd,
+  .ide__go {
+    height: 38px;
+  }
+
+  .ide__go {
+    font-size: 12px;
+  }
+
+  .intro__title-jp {
+    font-size: clamp(22px, 6vw, 34px);
   }
 }
 
