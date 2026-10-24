@@ -574,7 +574,8 @@ function buildTrashBins(parent: THREE.Object3D, x: number, z: number): void {
     addBox(g, toon(0x1e232b), 0.32, 0.055, 0.35, bx, 0.72, 0, { r: 0.02 });
     addBox(g, toon(0x181c23), 0.18, 0.12, 0.018, bx, 0.48, 0.17);
   });
-  addBox(g, toon(0xdce1e6), 1.06, 0.28, 0.028, 0, 0.6, -0.21, { cast: false });
+  // 三只桶背后原本还有一块 1.06×0.28 的浅灰背板，顶边高过桶盖，
+  // 从街上看像一块白色长条贴在桶顶上 —— 去掉。
 }
 
 /**

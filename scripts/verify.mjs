@@ -770,7 +770,18 @@ let storefront = null;
       }
     });
 
-    return { bikesIntoWall, binBetween, railsBehindBins };
+    // 桶顶也不能再压一块浅灰背板（旧版 #dce1e6, 1.06×0.28, z≈2.09）
+    let binPanels = 0;
+    root.traverse((o) => {
+      if (!o.isMesh || !o.material?.color) return;
+      if ('#' + o.material.color.getHexString() !== '#dce1e6') return;
+      const b = box(o);
+      if (b.maxX > 2.4 && b.minX < 3.5 && b.maxZ > 1.9 && b.minZ < 2.6 && b.maxY > 0.9) {
+        binPanels++;
+      }
+    });
+
+    return { bikesIntoWall, binBetween, railsBehindBins, binPanels };
   });
   check(
     '蓝色售卖机旁的自行车不陷进侧墙',
@@ -783,9 +794,12 @@ let storefront = null;
     JSON.stringify({ binZ: streetDetails.binBetween }),
   );
   check(
-    '垃圾桶背后没有护栏白条',
-    streetDetails.railsBehindBins === 0,
-    JSON.stringify({ railsBehindBins: streetDetails.railsBehindBins }),
+    '垃圾桶背后没有护栏白条 / 多余背板',
+    streetDetails.railsBehindBins === 0 && streetDetails.binPanels === 0,
+    JSON.stringify({
+      railsBehindBins: streetDetails.railsBehindBins,
+      binPanels: streetDetails.binPanels,
+    }),
   );
 
   storefront = await p2.evaluate(() => {
