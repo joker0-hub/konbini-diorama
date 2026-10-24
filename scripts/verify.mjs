@@ -718,6 +718,76 @@ let storefront = null;
     JSON.stringify(topSigns),
   );
 
+  // 侧街的自行车 / 售卖机回收桶 / 垃圾桶背后的护栏，
+  // 都是“单独看没问题，和旁边的物件一比对就穿模”的类型。
+  const streetDetails = await p2.evaluate(() => {
+    const L = window.__konbini.layout;
+    const root = window.__konbini.world.root;
+    root.updateMatrixWorld(true);
+    const box = (obj) => {
+      let minX = Infinity, maxX = -Infinity;
+      let minZ = Infinity, maxZ = -Infinity;
+      let maxY = -Infinity;
+      obj.traverse((m) => {
+        if (!m.isMesh || !m.geometry) return;
+        if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
+        const bb = m.geometry.boundingBox.clone().applyMatrix4(m.matrixWorld);
+        minX = Math.min(minX, bb.min.x);
+        maxX = Math.max(maxX, bb.max.x);
+        minZ = Math.min(minZ, bb.min.z);
+        maxZ = Math.max(maxZ, bb.max.z);
+        maxY = Math.max(maxY, bb.max.y);
+      });
+      return { minX, maxX, minZ, maxZ, maxY };
+    };
+
+    // 侧街那辆自行车：后轮不能越过 x=2.2 的侧墙
+    const bikesIntoWall = [];
+    root.traverse((o) => {
+      if (o.name !== 'bicycle') return;
+      const b = box(o);
+      if ((b.minZ + b.maxZ) / 2 < 0 && b.minX < L.store.x1 + 0.05) {
+        bikesIntoWall.push(+b.minX.toFixed(2));
+      }
+    });
+
+    // 蓝色售卖机的回收桶必须在机器外侧，不能卡在红蓝两台中间
+    const blue = root.getObjectByName('vending-blue');
+    const bin = blue?.getObjectByName('vending-bin');
+    const binBox = bin ? box(bin) : null;
+    const binBetween = binBox
+      ? +(((binBox.minZ + binBox.maxZ) / 2)).toFixed(2)
+      : null;
+
+    // 垃圾桶背后不能再有护栏白条（x 2.4..3.5, z 2.8..3.3）
+    let railsBehindBins = 0;
+    root.traverse((o) => {
+      if (!o.isMesh || !o.material?.color) return;
+      if ('#' + o.material.color.getHexString() !== '#e4e7ea') return;
+      const b = box(o);
+      if (b.maxX > 2.4 && b.minX < 3.5 && b.maxZ > 2.8 && b.minZ < 3.3 && b.maxY > 0.5) {
+        railsBehindBins++;
+      }
+    });
+
+    return { bikesIntoWall, binBetween, railsBehindBins };
+  });
+  check(
+    '蓝色售卖机旁的自行车不陷进侧墙',
+    streetDetails.bikesIntoWall.length === 0,
+    JSON.stringify(streetDetails.bikesIntoWall),
+  );
+  check(
+    '蓝色回收桶在蓝色售卖机外侧（不在两台机器中间）',
+    streetDetails.binBetween !== null && streetDetails.binBetween < -3.6,
+    JSON.stringify({ binZ: streetDetails.binBetween }),
+  );
+  check(
+    '垃圾桶背后没有护栏白条',
+    streetDetails.railsBehindBins === 0,
+    JSON.stringify({ railsBehindBins: streetDetails.railsBehindBins }),
+  );
+
   storefront = await p2.evaluate(() => {
     const L = window.__konbini.layout;
     const S = L.store;

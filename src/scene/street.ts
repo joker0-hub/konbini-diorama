@@ -86,7 +86,8 @@ export function buildStreet(root: THREE.Object3D, ctx: SceneCtx): StreetRefs {
   // 护栏必须给店门口留出口：横在门前的护栏会挡住"入口"这个视觉焦点，
   // 也会让门前的湿地反光少掉一大块。
   buildGuardrail(g, -3.2, L.walk.zOuter - 0.32, -0.3, L.walk.zOuter - 0.32);
-  buildGuardrail(g, 2.6, L.walk.zOuter - 0.32, 4.1, L.walk.zOuter - 0.32);
+  // 原 2.6..4.1 这段护栏正好横在门口三色垃圾桶背后，
+  // 白色横杆会从桶顶穿过去，像一条漂在空中的长条 —— 去掉。
   buildGuardrail(g, L.walk.xOuter - 0.32, 3.9, L.walk.xOuter - 0.32, 6.0);
 
   /* ================= 小巷 ================= */
@@ -98,7 +99,9 @@ export function buildStreet(root: THREE.Object3D, ctx: SceneCtx): StreetRefs {
   /* ================= 自行车 ================= */
   buildBicycle(g, -4.9, CURB, 2.1, Math.PI * 0.47);
   buildBicycle(g, -3.95, CURB, 2.22, Math.PI * 0.44);
-  buildBicycle(g, 3.0, CURB, -4.6, Math.PI * 0.02);
+  // 后轮原来会探进侧墙 2cm（轮心 3.0 - 0.82 = 2.18 < 墙 2.2），
+  // 从侧街看就像自行车一半陷在店里；整体向外挪 18cm。
+  buildBicycle(g, 3.18, CURB, -4.6, Math.PI * 0.02);
 
   /* ================= 反光柱 ================= */
   for (let i = 0; i < 4; i++) {
@@ -152,10 +155,13 @@ function buildVending(
   // 侧面格栅
   addBox(g, toon(0xb4bbc4), 0.018, 0.48, 0.58, 0.5, 0.48, 0, { cast: false });
   for (let i = 0; i < 5; i++) addBox(g, toon(0x8d949c), 0.016, 0.018, 0.54, 0.505, 0.52 + i * 0.085, 0, { cast: false });
-  // 回收箱
-  addBox(g, toon(0x2f6bd8), 0.42, 0.92, 0.42, -0.74, 0, 0.14, { r: 0.04 });
-  addBox(g, toon(0x1e232b), 0.32, 0.11, 0.02, -0.74, 0.64, 0.355, { cast: false });
-  addMesh(g, new THREE.CircleGeometry(0.068, 12), toon(0x12151b), -0.74, 0.7, 0.362).castShadow = false;
+  // 回收箱：每台机器都放在自己「外侧」，不要卡在红蓝两台中间。
+  // 局部 -x 旋转后朝 +z（面向红机一侧），所以蓝机要翻到 +x。
+  const binX = variant === 'blue' ? 0.74 : -0.74;
+  const bin = addBox(g, toon(0x2f6bd8), 0.42, 0.92, 0.42, binX, 0, 0.14, { r: 0.04 });
+  bin.name = 'vending-bin';
+  addBox(g, toon(0x1e232b), 0.32, 0.11, 0.02, binX, 0.64, 0.355, { cast: false });
+  addMesh(g, new THREE.CircleGeometry(0.068, 12), toon(0x12151b), binX, 0.7, 0.362).castShadow = false;
   return g;
 }
 
