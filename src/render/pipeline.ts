@@ -138,13 +138,23 @@ export function createPipeline(
   renderer.getSize(size);
 
   // 场景目标：半浮点颜色 + 深度纹理
+  //
+  // samples：MSAA 采样数。
+  // 这个管线是「先渲到 RT、再做后处理」，renderer 的 antialias 选项
+  // 只对默认帧缓冲生效，对 RT 完全无效 —— 所以必须在这里开 MSAA。
+  // 原来 samples = 0，等于这个项目从来没有任何多重采样：
+  // 远处密集的几何边缘（地砖、砖墙、斑马线）会直接走样成条纹。
+  const maxSamples = renderer.capabilities.maxSamples ?? 4;
+  const msaaSamples = Math.min(4, maxSamples);
   const depthTexture = new THREE.DepthTexture(size.x, size.y);
-  depthTexture.type = THREE.UnsignedShortType;
+  // 24 位深度：16 位在远景下相邻像素的深度值会落到同一个量化台阶，
+  // 描边判断就会在整片区域随机出线（表现为细密噪点）。
+  depthTexture.type = THREE.UnsignedIntType;
   const rt = new THREE.WebGLRenderTarget(size.x, size.y, {
     type: THREE.HalfFloatType,
     depthTexture,
     depthBuffer: true,
-    samples: 0,
+    samples: msaaSamples,
   });
 
   /**
@@ -157,11 +167,18 @@ export function createPipeline(
    *
    * 所以描边判断改看这一张图：只渲染层 0（实体）和层 1（玻璃/雨），
    * 不含层 2 的花瓣。花瓣在主 rt 里正常着色，只是不产生描边线。
-   * 颜色目标随手用一个 1x1 的占位 —— 这一遍我们只关心深度。
+   *
+   * 关键：颜色目标必须和深度纹理同样尺寸。
+   * 原来这里写成 1×1（"反正只看深度"），但深度纹理挂在这个 target 上，
+   * FBO 的实际可绘制尺寸被颜色附件限制成 1×1 —— 深度于是被缩到
+   * 一个像素，全屏描边拿着这张无效深度图乱采样，
+   * 远景就织出一片密集条纹。颜色附件保留但不用（不读它的内容）。
    */
   const edgeDepth = new THREE.DepthTexture(size.x, size.y);
-  edgeDepth.type = THREE.UnsignedShortType;
-  const edgeTarget = new THREE.WebGLRenderTarget(1, 1, {
+  // 24 位深度：16 位在远景下相邻像素深度会落到同一量化台阶，
+  // 描边判断会在整片区域随机出线。
+  edgeDepth.type = THREE.UnsignedIntType;
+  const edgeTarget = new THREE.WebGLRenderTarget(size.x, size.y, {
     type: THREE.UnsignedByteType,
     depthTexture: edgeDepth,
     depthBuffer: true,

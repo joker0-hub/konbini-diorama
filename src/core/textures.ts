@@ -10,6 +10,34 @@ const JP = '"Yu Gothic", "YuGothic", "Meiryo", "Noto Sans JP", "MS Gothic", sans
 
 const cache = new Map<string, THREE.Texture>();
 
+/**
+ * 全场景各向异性滤波等级。
+ *
+ * 这是远景摩尔纹的首要成因：地面/墙面都是被"斜着看"的平面，
+ * 透视会让远处每个像素覆盖一大片纹理，采样点数量不足时就会把
+ * 地砖缝、砖墙线采成一片混乱的波纹。
+ *
+ * 原来硬编码 8：既没有按显卡上限取（本机上限 16，等于白丢一半），
+ * 又在纹理创建时就被固定死 —— 那时渲染器还没创建，拿不到 GPU 能力。
+ * 现在先给一个保守值，由 applyTextureQuality() 在渲染器就绪后统一抬到上限。
+ */
+let textureAnisotropy = 8;
+
+/** 由 main.ts 在 renderer 创建后调用：把各向异性抬到显卡支持的上限。 */
+export function applyTextureQuality(renderer: THREE.WebGLRenderer): void {
+  const max = renderer.capabilities.getMaxAnisotropy();
+  if (max > textureAnisotropy) {
+    textureAnisotropy = max;
+  }
+  // 已经建好的纹理也要一起更新（它们是在渲染器之前创建的）
+  for (const t of cache.values()) {
+    if (t.anisotropy !== textureAnisotropy) {
+      t.anisotropy = textureAnisotropy;
+      t.needsUpdate = true;
+    }
+  }
+}
+
 function mk(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
   const c = document.createElement('canvas');
   c.width = w;
@@ -30,7 +58,12 @@ function finish(
     t.wrapT = THREE.RepeatWrapping;
     t.repeat.set(opts.repeat[0], opts.repeat[1]);
   }
-  t.anisotropy = 8;
+  t.anisotropy = textureAnisotropy;
+  // 三线性 mipmap：缩小采样时用相邻两级 mip 插值，
+  // 避免硬切 mip 级在远处出现"整片亮度跳变"的色块边界。
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.magFilter = THREE.LinearFilter;
+  t.generateMipmaps = true;
   t.needsUpdate = true;
   return t;
 }
@@ -39,6 +72,12 @@ function cached(key: string, build: () => THREE.CanvasTexture): THREE.Texture {
   const hit = cache.get(key);
   if (hit) return hit;
   const t = build();
+  // 纹理可能是在 applyTextureQuality 之后才首次创建（懒加载），
+  // 这里补一次，保证新建纹理也用当前等级。
+  if (t.anisotropy !== textureAnisotropy) {
+    t.anisotropy = textureAnisotropy;
+    t.needsUpdate = true;
+  }
   cache.set(key, t);
   return t;
 }
@@ -114,7 +153,12 @@ export function sidewalkTex(): THREE.Texture {
   return cached('sidewalk', () => {
     const S = 512;
     const [c, ctx] = mk(S, S);
-    ctx.fillStyle = '#3d434f';
+    // 底色不再用比砖块暗很多的 #3d434f。
+    // 原来底色和砖块差 ~40 个色阶、缝只有 2px，缩小时每一条缝都是一个
+    // 独立采样点，mipmap 平均出来的中间灰和两侧亮块互相打架，
+    // 远处就织成一片网格状波纹。现在底色只比砖块暗 ~12 个色阶，
+    // 缝宽 3px 且有半透明过渡，缩小时的方差大幅下降。
+    ctx.fillStyle = '#565c69';
     ctx.fillRect(0, 0, S, S);
     const n = 8;
     const t = S / n;
@@ -123,12 +167,15 @@ export function sidewalkTex(): THREE.Texture {
       for (let x = 0; x < n; x++) {
         const v = 84 + Math.floor(r() * 22);
         ctx.fillStyle = `rgb(${v},${v + 5},${v + 13})`;
-        ctx.fillRect(x * t + 2, y * t + 2, t - 4, t - 4);
-        ctx.fillStyle = 'rgba(255,255,255,0.05)';
-        ctx.fillRect(x * t + 2, y * t + 2, t - 4, 2);
+        // 砖块之间留 3px，缝由底色透出
+        ctx.fillRect(x * t + 3, y * t + 3, t - 6, t - 6);
+        // 上沿高光也压淡：原来是 0.05 纯白细线，同样是高频细节
+        ctx.fillStyle = 'rgba(255,255,255,0.035)';
+        ctx.fillRect(x * t + 3, y * t + 3, t - 6, 2);
       }
     }
-    speckle(ctx, S, S, 31, 2600, 0.04);
+    // 斑点数量减半：每个 1~3px 的亮点在远景都是噪声源
+    speckle(ctx, S, S, 31, 1200, 0.03);
     return finish(c, { repeat: [2, 2] });
   });
 }
