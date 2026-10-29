@@ -14,8 +14,31 @@ import * as TX from '../core/textures';
 import { L } from './layout';
 import type { SceneCtx } from './base';
 import { buildTrafficSignal, type SignalHandles } from './signal';
+import { buildSakuraTree, type SakuraTreeHandles } from './sakura';
 
 const CURB = L.curb;
+
+/**
+ * 四根电线杆的落点 —— 场景里唯一的杆位来源。
+ *
+ * `buildWires()` 的电线端点必须和这里严格一致，否则端点会飘在杆子外面，
+ * 所以两边共用这一份坐标，不再各写一套数字。
+ *
+ * 索引约定（buildWires 按名字取用，不靠下标）：
+ *   rightFront / rightBack  右侧沿街两根
+ *   leftBack / leftFront    左侧（邻楼前）两根
+ */
+const POLES = {
+  // 右前杆：原来在 x = 5.9，正好立在右边斑马线（x ∈ [4.4, 8]）中间，
+  // 和后面的右后杆（x = 4.3）错开 1.6m，看起来就是一根杆斜插在斑马线上、
+  // 与后杆不平行。现在对齐到 x = 4.3，两根沿街成一条直线。
+  rightFront: [4.3, 1.55],
+  rightBack: [4.3, -6.6],
+  // 左侧同理：原来 -7.4 / -7.2 只差 0.2m，近看仍是"两根不齐"。
+  // 统一到 -7.4 —— 横担外伸 0.85 后到 -8.25，仍在台座外沿 8.3 之内。
+  leftBack: [-7.4, -7.0],
+  leftFront: [-7.4, 2.6],
+} as const satisfies Record<string, readonly [number, number]>;
 
 export interface StreetRefs {
   /** 街角信号灯（车灯 + 行人灯 + 循环） */
@@ -23,6 +46,7 @@ export interface StreetRefs {
   streetLamp: THREE.PointLight;
   /** 门口补光（随门开合变化） */
   doorSpill: THREE.PointLight;
+  sakura: SakuraTreeHandles;
 }
 
 export function buildStreet(root: THREE.Object3D, ctx: SceneCtx): StreetRefs {
@@ -64,13 +88,12 @@ export function buildStreet(root: THREE.Object3D, ctx: SceneCtx): StreetRefs {
   // 杆位必须保证「横担两端」也在台座内：
   // 横担半宽 0.85，台座外沿 8.3，所以杆心 |x| 最大只能到 7.45。
   // 原来最左那根放在 -7.7，横担直接探出 0.25m 悬在台座外。
-  const poles: [number, number][] = [
-    [5.9, 1.6],
-    [4.3, -6.6],
-    [-7.4, -7.0],
-    [-7.2, 2.6],
-  ];
-  for (const [px, pz] of poles) buildUtilityPole(g, px, pz);
+  //
+  // 右侧两根必须沿街「对齐」：右边车道的斑马线占 x ∈ [4.4, 8]，
+  // 原来的右前杆在 x = 5.9，正好戳在斑马线中间；而右后杆在 x = 4.3。
+  // 两根错开 1.6m，从街对面看就是一根杆斜插在斑马线上、和后面的杆不平行。
+  // 现在统一到 POLES 常量，杆位与电线端点共用一份坐标，不会再各写一套。
+  for (const [px, pz] of Object.values(POLES)) buildUtilityPole(g, px, pz);
   buildWires(g);
 
   /* ================= 信号灯（街角路口） ================= */
@@ -104,8 +127,12 @@ export function buildStreet(root: THREE.Object3D, ctx: SceneCtx): StreetRefs {
   buildBicycle(g, 3.18, CURB, -4.6, Math.PI * 0.02);
 
   /* ================= 反光柱 ================= */
-  for (let i = 0; i < 4; i++) {
-    const x = -3.4 + i * 2.3;
+  // 只保留护栏「外侧」那几根，不再往门口护栏的跨度里插柱子。
+  // 原来的阵列是 x = -3.4 + i*2.3，四根落在 -3.4 / -1.1 / 1.2 / 3.5：
+  // 其中 -1.1 那根正好戳在第一段护栏（x ∈ [-3.2, -0.3]）的中间，
+  // 从街上看向伞架时，一根带红白条纹的细柱横在护栏和伞架之间 —
+  // 既挡视线，又和护栏立柱形成"一粗一细"两根竖线，读起来像建模错位。
+  for (const x of [-3.4, 1.2, 3.5]) {
     addCyl(g, toon(0xdde2e8), 0.05, 0.05, 0.74, x, CURB, L.walk.zOuter - 0.42, { seg: 8 });
     addCyl(g, toon(0xd2452f), 0.052, 0.052, 0.095, x, CURB + 0.58, L.walk.zOuter - 0.42, { seg: 8 });
   }
@@ -114,11 +141,13 @@ export function buildStreet(root: THREE.Object3D, ctx: SceneCtx): StreetRefs {
   buildUmbrellaStand(g, L.door.x0 - 0.85, L.store.z1 + 0.7);
   buildTrashBins(g, L.store.x1 + 0.75, L.store.z1 + 1.5);
 
-  /* ================= 对面的行道树 ================= */
-  // 树是最容易挡住主体的道具：它又高又大。
-  // 必须放在「相机 → 店角」连线的延长线上、且远到不会进入画面中心。
-  // 放在底座最远的对角 (x=-7.6, z=7.6)，只作为背景剪影。
-  buildTree(g, -7.4, CURB, 7.2);
+  /* ================= 樱花树（板块左下角） ================= */
+  // 参考樱花树的原始模型约 7m 高，按街景比例缩到 42%。
+  // 位置在板块左下角的车行道上，所以落地高度是沥青面 y = 0，
+  // 不是人行道的 curb —— 树池与树共用 L.sakura.baseY。
+  // 它保持独立的动态子树，避免被世界的静态几何合并烘焙掉。
+  const sakura = buildSakuraTree(g, { x: L.sakura.x, y: L.sakura.baseY, z: L.sakura.z }, 0.42);
+  buildTreePit(g, L.sakura.x, L.sakura.z, L.sakura.baseY);
 
   /* ================= 排水沟积水 ================= */
   const gutter = new THREE.Mesh(planeGeo(15.8, 0.22), additiveClone(TX.wetSmearTex(false), 0x8fd4ff, 0.24));
@@ -130,7 +159,7 @@ export function buildStreet(root: THREE.Object3D, ctx: SceneCtx): StreetRefs {
   ctx.wet.push({ mesh: gutter, base: 0.24 });
 
   ctx.pieces.push(g);
-  return { signal, streetLamp, doorSpill };
+  return { signal, streetLamp, doorSpill, sakura };
 }
 
 /* ------------------------------------------------------------------ */
@@ -162,6 +191,103 @@ function buildVending(
   bin.name = 'vending-bin';
   addBox(g, toon(0x1e232b), 0.32, 0.11, 0.02, binX, 0.64, 0.355, { cast: false });
   addMesh(g, new THREE.CircleGeometry(0.068, 12), toon(0x12151b), binX, 0.7, 0.362).castShadow = false;
+  return g;
+}
+
+/**
+ * 樱花树的方形石框树池。
+ *
+ * 造型照着参考图来：一圈浅灰石材方框，框内是下沉的深褐土面，
+ * 树干根部周围长一圈嫩绿草叶，池边散着落樱。
+ *
+ * 为什么是方形而不是圆环：参考图就是规整的方框（日式街角花坛的常见做法），
+ * 方框四边与地砖缝平行，微缩比例下比圆弧更容易读成"石砌"而不是"装饰圈"。
+ *
+ * 尺寸全部由 pitHalf / pitBorder / pitBorderH 推出，改大小只改 layout。
+ */
+function buildTreePit(parent: THREE.Object3D, cx: number, cz: number, baseY: number): THREE.Group {
+  const g = group(parent, cx, baseY, cz, 'tree-pit');
+  const half = L.sakura.pitHalf;
+  const border = L.sakura.pitBorder;
+  const borderH = L.sakura.pitBorderH;
+
+  // 石材取近白的两档：顶面亮、侧面略深。
+  // 参考图里树圈是浅灰白的石材，靠"顶面亮 / 侧面暗"这条明暗界线
+  // 读出立体感；原来两档都偏中灰，在阴雨光下几乎和沥青混在一起。
+  const stoneTop = toon(0xe8e6e0);
+  const stoneSide = toon(0xb9b5ac);
+  const soilMat = toon(0x453428);
+
+  /* ---- 1. 池底夯土：略低于地面，四周被石框挡住 ---- */
+  const soil = new THREE.Mesh(new THREE.PlaneGeometry(half * 2, half * 2), soilMat);
+  soil.rotation.x = -Math.PI / 2;
+  // 只下沉 1.5cm：池子落在车道上时，压得比这更深会从沥青面下方露出来
+  soil.position.y = -0.015;
+  soil.receiveShadow = true;
+  soil.castShadow = false;
+  g.add(soil);
+
+  /* ---- 2. 四周石框：四条独立的石条，转角处正好搭接 ----
+   * 参考图的边框是"立起来的一圈石条"，所以这里不再用薄板贴面，
+   * 而是直接给足高度 + 顶面单独压一层亮色板：
+   * 侧面暗一档、顶面亮一档，转角处自然形成一条清晰的高光线。
+   */
+  const outer = half;
+  const inner = half - border;
+  // 前后两条（沿 x 布置），左右两条（沿 z 布置）
+  const bars: [number, number, number, number][] = [
+    // [w, d, x, z]
+    [outer * 2, border, 0, outer - border / 2],
+    [outer * 2, border, 0, -(outer - border / 2)],
+    [border, inner * 2, outer - border / 2, 0],
+    [border, inner * 2, -(outer - border / 2), 0],
+  ];
+  for (const [w, d, x, z] of bars) {
+    // 侧面主体：从地面直接立起来
+    addBox(g, stoneSide, w, borderH, d, x, 0, z, { r: 0.006 });
+    // 顶面压顶：外扩 8mm 形成一道薄薄的悬挑，
+    // 位置贴在框顶（borderH - 0.022 起、厚 0.022），顶面正好与 borderH 齐平。
+    // 之前写成 borderH - 0.02 起、厚 0.022 → 顶面高出框体 2mm，
+    // 视觉上反而糊成一条亮边，读不出"这是一圈立起来的石框"。
+    addBox(g, stoneTop, w + 0.008, 0.022, d + 0.008, x, borderH - 0.022, z, {
+      r: 0.005, cast: false,
+    });
+  }
+
+  /* ---- 3. 框内壁：四条薄板，把土面和石框之间的空隙封住 ---- */
+  const wallH = 0.14;
+  const walls: [number, number, number, number][] = [
+    [inner * 2, 0.012, 0, -(inner)],
+    [inner * 2, 0.012, 0, inner],
+    [0.012, inner * 2, -(inner), 0],
+    [0.012, inner * 2, inner, 0],
+  ];
+  for (const [w, d, x, z] of walls) {
+    addBox(g, stoneSide, w, wallH, d, x, -0.015, z, { cast: false });
+  }
+
+  /* ---- 4. 根部嫩绿草丛：参考图里树干周围一圈细长草叶 ---- */
+  const grassMat = toon(0x7fb04a, { side: THREE.DoubleSide });
+  const grassDark = toon(0x5b8a36, { side: THREE.DoubleSide });
+  const bladeCount = 64;
+  for (let i = 0; i < bladeCount; i++) {
+    // 用确定的伪随机，保证每次渲染一致（不能用 Math.random，否则截图对不上）
+    const t = i * 2.399963;                       // 黄金角，散布均匀
+    const rr = 0.16 + ((i * 37) % 17) / 17 * 0.22;
+    const bx = Math.cos(t) * rr;
+    const bz = Math.sin(t) * rr;
+    const h = 0.075 + ((i * 53) % 11) / 11 * 0.075;
+    const lean = 0.12 + ((i * 29) % 13) / 13 * 0.22;
+    // 草叶做成细长三角片，往外倾斜
+    const blade = new THREE.Mesh(new THREE.ConeGeometry(0.012, h, 3, 1), i % 3 === 0 ? grassDark : grassMat);
+    blade.position.set(bx, h / 2 - 0.014, bz);
+    blade.rotation.z = Math.cos(t) * lean;
+    blade.rotation.x = -Math.sin(t) * lean;
+    blade.castShadow = false;
+    blade.receiveShadow = true;
+    g.add(blade);
+  }
+
   return g;
 }
 
@@ -228,12 +354,15 @@ function buildUtilityPole(parent: THREE.Object3D, x: number, z: number): void {
 
 function buildWires(parent: THREE.Object3D): void {
   const wireMat = toon(0x111419);
-  const A = new THREE.Vector3(5.9, 6.6, 1.6);     // 右前杆
-  const B = new THREE.Vector3(4.3, 6.5, -6.6);    // 右后杆
-  // 左侧两根必须和上面 poles 里的坐标严格一致，
-  // 否则电线端点会飘在杆子外面。
-  const C = new THREE.Vector3(-7.4, 6.55, -7.0);  // 左后杆
-  const D = new THREE.Vector3(-7.2, 6.5, 2.6);    // 左前杆
+  // 端点一律从 POLES 取，不再硬编码 —— 杆一挪，电线跟着走。
+  const [ax, az] = POLES.rightFront;
+  const [bx, bz] = POLES.rightBack;
+  const [cx, cz] = POLES.leftBack;
+  const [dx, dz] = POLES.leftFront;
+  const A = new THREE.Vector3(ax, 6.6, az);   // 右前杆
+  const B = new THREE.Vector3(bx, 6.5, bz);   // 右后杆
+  const C = new THREE.Vector3(cx, 6.55, cz);  // 左后杆
+  const D = new THREE.Vector3(dx, 6.5, dz);   // 左前杆
   const routes: [THREE.Vector3, THREE.Vector3, number][] = [
     // 右侧沿街三根（从画面上方斜穿）
     [A.clone().setY(6.62), B.clone().setY(6.55), 0.55],
@@ -253,8 +382,8 @@ function buildWires(parent: THREE.Object3D): void {
     tube.castShadow = false;
     parent.add(tube);
   }
-  // 入户线：从右前杆接到便利店屋顶
-  const drop = sagWire([5.7, 5.3, 1.75], [L.store.x1 + 0.15, 4.2, L.store.z1 - 0.6], 0.28, 12);
+  // 入户线：从右前杆接到便利店屋顶（起点随杆位走）
+  const drop = sagWire([ax - 0.2, 5.3, az + 0.15], [L.store.x1 + 0.15, 4.2, L.store.z1 - 0.6], 0.28, 12);
   parent.add(new THREE.Mesh(
     new THREE.TubeGeometry(new THREE.CatmullRomCurve3(drop), 16, 0.013, 4, false),
     toon(0x181c23),
@@ -448,20 +577,6 @@ function buildNeighbor(parent: THREE.Object3D, ctx: SceneCtx): void {
   addBox(g, toon(0x363d4a), 0.5, 0.14, 2.4, N.x1 + 0.25, 0, N.z1 - 1.6);
 
   ctx.pieces.push(g);
-}
-
-function buildTree(parent: THREE.Object3D, x: number, y: number, z: number): void {
-  const g = group(parent, x, y, z, 'tree');
-  addCyl(g, toon(0x453629), 0.085, 0.12, 2.4, 0, 0, 0, { seg: 8 });
-  const leaf = toon(0x2c4739);
-  for (const [bx, by, bz, r] of [
-    [0, 2.7, 0, 0.66],
-    [-0.4, 2.4, 0.18, 0.46],
-    [0.38, 2.46, -0.16, 0.44],
-    [0.08, 3.0, 0.1, 0.4],
-  ] as [number, number, number, number][]) {
-    addMesh(g, new THREE.IcosahedronGeometry(r, 0), leaf, bx, by, bz);
-  }
 }
 
 function buildUmbrellaStand(parent: THREE.Object3D, x: number, z: number): void {

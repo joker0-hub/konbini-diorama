@@ -145,7 +145,7 @@ export function buildWorld(envInit: EnvState = { time: 'day', weather: 'rain' })
     merged = true;
     mergeStaticMeshes(root, {
       // 这些子树里的网格每帧都在动（或被单独控制），不能烘焙
-      excludeNames: ['auto-door', 'rain-layer', 'snow-layer'],
+      excludeNames: ['auto-door', 'rain-layer', 'snow-layer', 'sakura-tree'],
     });
   };
   assembly.onDone = doMerge;
@@ -258,6 +258,7 @@ export function buildWorld(envInit: EnvState = { time: 'day', weather: 'rain' })
     environment.update(dt);
     rain.update(t, dt, cam);
     stars.update(t, cam, starOpacity);
+    street.sakura.update(t, dt);
 
     for (const fn of ctx.ticks) fn(t, dt);
     snowfall.update(t, snowfallOpacity);

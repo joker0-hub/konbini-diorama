@@ -1,3 +1,7 @@
-﻿node_modules/
+node_modules/
 dist/
 shots/
+
+# 临时诊断脚本（下划线前缀）：排查摩尔纹、深度量化等一次性问题用，
+# 不属于产品代码，也不参与构建与验收。
+scripts/_*

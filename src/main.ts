@@ -1,13 +1,11 @@
-/**
- * 入口：一块能拖、能转、能缩放的微缩模型，
- * 底部一个「时间 × 天气」两维独立的轻量控制台。
- */
+/** 入口：可拖拽查看的微缩模型，樱花树可点击打开四项环境参数。 */
 
 import './style.css';
 import * as THREE from 'three';
 import { buildWorld } from './scene/world';
 import { createCameraRig } from './render/camera';
 import { createPipeline } from './render/pipeline';
+import { createSakuraPanel } from './ui/sakura-panel';
 import { createEnvUI } from './ui/envbar';
 import { createCodeOpening } from './ui/intro';
 import { P } from './core/palette';
@@ -67,8 +65,11 @@ if (envInit.instant) world.environment.set({}, true);
 /* ---------------- 相机 ---------------- */
 const rig = createCameraRig(canvas);
 const camera = rig.camera;
-// 层 0 = 实体（参与深度描边）；层 1 = 玻璃 / 雨 / 辉光 / 贴花（不参与描边）
+// 层 0 = 实体（参与深度描边）；层 1 = 玻璃 / 雨 / 辉光 / 贴花（不参与描边）；
+// 层 2 = 密集小面片（樱花花簇、落樱、地面花瓣）—— 正常着色，
+// 但不参与描边用的深度 pass，否则几千片花瓣会被逐片描上黑边。
 camera.layers.enable(1);
+camera.layers.enable(2);
 
 /* ---------------- 后处理管线 ---------------- */
 const pipeline = createPipeline(renderer, scene, camera);
@@ -119,6 +120,35 @@ const opening = createCodeOpening({
   time: envInit.time,
   weather: envInit.weather,
 });
+
+/* ---------------- 樱花树参数面板 ---------------- */
+// 面板只通过点击樱花树打开；右上角按钮负责收起。
+const sakuraPanel = createSakuraPanel(document.body, (patch) => world.street.sakura.setParameters(patch));
+const sakuraRaycaster = new THREE.Raycaster();
+const sakuraPointer = new THREE.Vector2();
+let sakuraPointerStart: { x: number; y: number } | null = null;
+
+canvas.addEventListener('pointerdown', (event) => {
+  sakuraPointerStart = event.button === 0 ? { x: event.clientX, y: event.clientY } : null;
+});
+canvas.addEventListener('pointerup', (event) => {
+  const start = sakuraPointerStart;
+  sakuraPointerStart = null;
+  if (!start || Math.hypot(event.clientX - start.x, event.clientY - start.y) > 7) return;
+
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return;
+  sakuraPointer.set(
+    ((event.clientX - rect.left) / rect.width) * 2 - 1,
+    -((event.clientY - rect.top) / rect.height) * 2 + 1,
+  );
+  sakuraRaycaster.setFromCamera(sakuraPointer, camera);
+  if (sakuraRaycaster.intersectObject(world.street.sakura.pickRoot, true).length > 0) {
+    sakuraPanel.setOpen(true);
+  }
+});
+canvas.addEventListener('pointercancel', () => { sakuraPointerStart = null; });
+window.addEventListener('beforeunload', () => sakuraPanel.destroy());
 
 /* ---------------- 主循环 ---------------- */
 const clock = new THREE.Clock();
@@ -202,7 +232,7 @@ window.__konbini = {
     rig.controls.target.set(target[0], target[1], target[2]);
     rig.controls.update();
   },
-      replay: () => location.reload(),
+  replay: () => location.reload(),
   spin: (on) => {
     rig.controls.autoRotate = on;
     rig.controls.autoRotateSpeed = 0.5;

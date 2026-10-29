@@ -190,10 +190,27 @@ export function buildBase(root: THREE.Object3D, ctx: SceneCtx): THREE.Group {
   g.add(pMark);
   noOutline(pMark);
 
-  /* ---------------- 导盲砖 ---------------- */
+  /* ---------------- 导盲砖 ----------------
+   * 只铺在人行道上。旧版两条都是写死的固定长度：
+   *  - 横向那条往右铺到 x = 6.9，直接压在右侧斑马线上（斑马线 x ∈ [4.4, 8]）；
+   *  - 纵向那条往南铺到 z = 5.2，越过路缘石（z = 3.4）躺在车行道上。
+   * 现在两端都按人行道边界收口，并在路缘一侧留 15cm 安全带 ——
+   * 盲道紧贴路缘石会被误读成"路面标线"，而这正是它之前看起来像黄线的原因。
+   */
   const tactile = toon(P.tactile);
-  addBox(g, tactile, 15.0, 0.014, 0.3, -0.6, L.curb - 0.007, L.walk.zInner + 0.55);
-  addBox(g, tactile, 0.3, 0.014, 12.0, L.walk.xInner + 0.55, L.curb - 0.007, -0.8);
+  const TACTILE_INSET = 0.15;
+  // 横向：沿店面前沿走，从台座左缘到右侧人行道内边
+  {
+    const x0 = -H + 0.1;
+    const x1 = L.walk.xOuter - TACTILE_INSET;
+    addBox(g, tactile, x1 - x0, 0.014, 0.3, (x0 + x1) / 2, L.curb - 0.007, L.walk.zInner + 0.55);
+  }
+  // 纵向：沿侧街走，从前侧路缘石内侧收口到后侧
+  {
+    const z0 = -6.8;
+    const z1 = L.walk.zOuter - TACTILE_INSET;
+    addBox(g, tactile, 0.3, 0.014, z1 - z0, L.walk.xInner + 0.55, L.curb - 0.007, (z0 + z1) / 2);
+  }
 
   /* ---------------- 湿地反光 ---------------- */
   // 关键：路面 y≈0，人行道面 y=curb（0.14）。
