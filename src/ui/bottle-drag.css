@@ -1,0 +1,27 @@
+.bottle-drag-hint {
+  position: fixed;
+  left: 50%;
+  bottom: max(90px, calc(env(safe-area-inset-bottom) + 76px));
+  z-index: 25;
+  max-width: calc(100vw - 48px);
+  width: max-content;
+  box-sizing: border-box;
+  padding: 10px 16px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(173, 207, 229, 0.3);
+  border-radius: 24px;
+  color: #e1ecf3;
+  background: rgba(19, 29, 39, 0.91);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+  font: 12px/1.6 system-ui, "Microsoft YaHei", sans-serif;
+  text-align: center;
+  pointer-events: none;
+  user-select: none;
+}
+
+.bottle-drag-hint[hidden] { display: none; }
+.bottle-drag-hint[data-recycle="true"] {
+  color: #c6f5dc;
+  border-color: rgba(150, 231, 185, 0.62);
+  background: rgba(23, 51, 41, 0.95);
+}

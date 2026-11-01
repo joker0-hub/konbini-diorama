@@ -15,6 +15,8 @@ import { L } from './layout';
 import type { SceneCtx } from './base';
 import { buildTrafficSignal, type SignalHandles } from './signal';
 import { buildSakuraTree, type SakuraTreeHandles } from './sakura';
+import { buildVendingMachine, type VendingHandles } from './vending';
+import { BottlePhysics } from '../core/bottle-physics';
 
 const CURB = L.curb;
 
@@ -47,15 +49,25 @@ export interface StreetRefs {
   /** 门口补光（随门开合变化） */
   doorSpill: THREE.PointLight;
   sakura: SakuraTreeHandles;
+  vending: VendingHandles[];
+  recyclingBins: THREE.Object3D[];
 }
 
 export function buildStreet(root: THREE.Object3D, ctx: SceneCtx): StreetRefs {
   const g = group(root, 0, 0, 0, 'street');
+  const bottlePhysics = new BottlePhysics();
+  const recyclingBins: THREE.Object3D[] = [];
 
   /* ================= 自动贩卖机（靠便利店侧墙） ================= */
   // ry = +90° 让商品面朝 +x（街道侧）；用 -90° 会转成背对街道的白盒子。
-  buildVending(g, 'blue', L.walk.xInner + 0.62, CURB, -3.1, Math.PI / 2);
-  buildVending(g, 'red', L.walk.xInner + 0.62, CURB, -1.9, Math.PI / 2);
+  const vending = [
+    buildVending(g, 'blue', L.walk.xInner + 0.62, CURB, -3.1, Math.PI / 2, bottlePhysics, recyclingBins),
+    buildVending(g, 'red', L.walk.xInner + 0.62, CURB, -1.9, Math.PI / 2, bottlePhysics, recyclingBins),
+  ];
+  ctx.ticks.push((_t, dt) => {
+    bottlePhysics.step(dt);
+    vending.forEach((machine) => machine.update(dt));
+  });
   for (const z of [-3.1, -1.9]) {
     const l = new THREE.PointLight(0xffe0b0, 2.2, 3.2, 2);
     l.position.set(L.walk.xInner + 1.35, 1.5, z);
@@ -139,7 +151,7 @@ export function buildStreet(root: THREE.Object3D, ctx: SceneCtx): StreetRefs {
 
   /* ================= 门口伞架 + 垃圾桶 ================= */
   buildUmbrellaStand(g, L.door.x0 - 0.85, L.store.z1 + 0.7);
-  buildTrashBins(g, L.store.x1 + 0.75, L.store.z1 + 1.5);
+  buildTrashBins(g, L.store.x1 + 0.75, L.store.z1 + 1.5, bottlePhysics, recyclingBins);
 
   /* ================= 樱花树（板块左下角） ================= */
   // 参考樱花树的原始模型约 7m 高，按街景比例缩到 42%。
@@ -159,31 +171,17 @@ export function buildStreet(root: THREE.Object3D, ctx: SceneCtx): StreetRefs {
   ctx.wet.push({ mesh: gutter, base: 0.24 });
 
   ctx.pieces.push(g);
-  return { signal, streetLamp, doorSpill, sakura };
+  return { signal, streetLamp, doorSpill, sakura, vending, recyclingBins };
 }
 
 /* ------------------------------------------------------------------ */
 
 function buildVending(
   parent: THREE.Object3D, variant: 'blue' | 'red', x: number, y: number, z: number, ry: number,
-): THREE.Group {
-  const g = group(parent, x, y, z, 'vending-' + variant);
-  g.rotation.y = ry;
-  addBox(g, toon(variant === 'blue' ? 0xdbe3ee : 0xe5ded6), 0.98, 1.86, 0.74, 0, 0, 0, { r: 0.045 });
-  const face = new THREE.Mesh(planeGeo(0.96, 1.84), decal(TX.vendingTex(variant), 1));
-  face.position.set(0, 0.93, 0.373);
-  g.add(face);
-  noOutline(face);
-  addBox(g, glow(0xfff3d6, 1.15), 1.02, 0.09, 0.78, 0, 1.9, 0, { cast: false });
-  addBox(g, toon(0x1b1f26), 1.04, 0.075, 0.8, 0, 1.81, 0, { cast: false });
-  const halo = new THREE.Mesh(planeGeo(2.2, 2.6), additiveClone(radialGlowTex(), 0xffe6bc, 0.3));
-  halo.position.set(0, 1.12, 0.5);
-  halo.renderOrder = 8;
-  g.add(halo);
-  noOutline(halo);
-  // 侧面格栅
-  addBox(g, toon(0xb4bbc4), 0.018, 0.48, 0.58, 0.5, 0.48, 0, { cast: false });
-  for (let i = 0; i < 5; i++) addBox(g, toon(0x8d949c), 0.016, 0.018, 0.54, 0.505, 0.52 + i * 0.085, 0, { cast: false });
+  physics: BottlePhysics, recyclingBins: THREE.Object3D[],
+): VendingHandles {
+  const machine = buildVendingMachine(parent, variant, x, y, z, ry, physics);
+  const g = machine.root;
   // 回收箱：每台机器都放在自己「外侧」，不要卡在红蓝两台中间。
   // 局部 -x 旋转后朝 +z（面向红机一侧），所以蓝机要翻到 +x。
   const binX = variant === 'blue' ? 0.74 : -0.74;
@@ -191,7 +189,25 @@ function buildVending(
   bin.name = 'vending-bin';
   addBox(g, toon(0x1e232b), 0.32, 0.11, 0.02, binX, 0.64, 0.355, { cast: false });
   addMesh(g, new THREE.CircleGeometry(0.068, 12), toon(0x12151b), binX, 0.7, 0.362).castShadow = false;
-  return g;
+  recyclingBins.push(registerRecyclingBin(g, new THREE.Vector3(binX, 0.46, 0.14), new THREE.Vector3(0.42, 0.92, 0.42), physics));
+  return machine;
+}
+
+/** Separate pick proxies survive the static merge; the visible bins keep their original design. */
+function registerRecyclingBin(parent: THREE.Object3D, center: THREE.Vector3, size: THREE.Vector3, physics: BottlePhysics): THREE.Mesh {
+  const target = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), new THREE.MeshBasicMaterial({ visible: false }));
+  target.name = 'recycling-bin-target';
+  target.position.copy(center);
+  target.userData.noMerge = true;
+  target.userData.recyclingPick = true;
+  parent.add(target);
+  parent.updateWorldMatrix(true, true);
+  const worldCenter = parent.localToWorld(center.clone());
+  const rotation = parent.getWorldQuaternion(new THREE.Quaternion());
+  physics.addBox(worldCenter, size, rotation);
+  // Include the mouth and a small rim margin, so airborne bottles are collected before impact.
+  physics.addRecyclingBox(worldCenter, size.clone().addScalar(0.1), rotation);
+  return target;
 }
 
 /**
@@ -680,7 +696,7 @@ function buildUmbrellaStand(parent: THREE.Object3D, x: number, z: number): void 
   }
 }
 
-function buildTrashBins(parent: THREE.Object3D, x: number, z: number): void {
+function buildTrashBins(parent: THREE.Object3D, x: number, z: number, physics: BottlePhysics, recyclingBins: THREE.Object3D[]): void {
   const g = group(parent, x, CURB, z, 'trash');
   const colors = [P.trashGreen, P.trashBlue, P.trashOrange];
   colors.forEach((c, i) => {
@@ -688,6 +704,7 @@ function buildTrashBins(parent: THREE.Object3D, x: number, z: number): void {
     addBox(g, toon(c), 0.3, 0.72, 0.33, bx, 0, 0, { r: 0.03 });
     addBox(g, toon(0x1e232b), 0.32, 0.055, 0.35, bx, 0.72, 0, { r: 0.02 });
     addBox(g, toon(0x181c23), 0.18, 0.12, 0.018, bx, 0.48, 0.17);
+    recyclingBins.push(registerRecyclingBin(g, new THREE.Vector3(bx, 0.3875, 0), new THREE.Vector3(0.32, 0.775, 0.35), physics));
   });
   // 三只桶背后原本还有一块 1.06×0.28 的浅灰背板，顶边高过桶盖，
   // 从街上看像一块白色长条贴在桶顶上 —— 去掉。

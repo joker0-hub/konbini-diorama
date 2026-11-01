@@ -16,9 +16,12 @@
     "verify": "node scripts/verify.mjs",
     "check:ui": "node scripts/check-ui.mjs",
     "check:env": "node scripts/check-env.mjs",
-    "check:signal": "node scripts/check-signal.mjs"
+    "check:signal": "node scripts/check-signal.mjs",
+    "check:vending": "node scripts/check-vending.mjs",
+    "check:vending-ui": "node scripts/check-vending-ui.mjs"
   },
   "dependencies": {
+    "cannon-es": "^0.20.0",
     "three": "^0.186.1"
   },
   "devDependencies": {

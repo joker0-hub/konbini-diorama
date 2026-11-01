@@ -6,6 +6,8 @@ import { buildWorld } from './scene/world';
 import { createCameraRig } from './render/camera';
 import { createPipeline } from './render/pipeline';
 import { createSakuraPanel } from './ui/sakura-panel';
+import { createVendingPanel } from './ui/vending-panel';
+import { createBottleDrag } from './ui/bottle-drag';
 import { createEnvUI } from './ui/envbar';
 import { createCodeOpening } from './ui/intro';
 import { P } from './core/palette';
@@ -197,17 +199,55 @@ const opening = createCodeOpening({
 /* ---------------- 樱花树参数面板 ---------------- */
 // 面板只通过点击樱花树打开；右上角按钮负责收起。
 const sakuraPanel = createSakuraPanel(document.body, (patch) => world.street.sakura.setParameters(patch));
+const vendingPanel = createVendingPanel(document.body, (machine, drink) => {
+  const purchased = machine.purchase(drink.id);
+  if (purchased) bottleDrag.notifyAvailable();
+  return purchased;
+});
+const bottleDrag = createBottleDrag({
+  canvas, camera, controls: rig.controls, worldRoot: world.root,
+  machines: world.street.vending, recyclingBins: world.street.recyclingBins,
+  canInteract: () => world.assembly.finished && !vendingPanel.isOpen() && !document.querySelector('.intro'),
+});
 const sakuraRaycaster = new THREE.Raycaster();
 const sakuraPointer = new THREE.Vector2();
-let sakuraPointerStart: { x: number; y: number } | null = null;
+const activePointers = new Set<number>();
+let sakuraPointerStart: { x: number; y: number; id: number; dragged: boolean } | null = null;
+
+function isWorldVisible(object: THREE.Object3D): boolean {
+  for (let p: THREE.Object3D | null = object; p; p = p.parent) {
+    if (!p.visible) return false;
+  }
+  return true;
+}
+
+/** Solid scene objects block purchases through the building or street furniture. */
+function isPurchaseBlocker(hit: THREE.Intersection): boolean {
+  const mesh = hit.object as THREE.Mesh;
+  if (!mesh.isMesh || mesh.userData.vendingPick || mesh.userData.recyclingPick || !isWorldVisible(mesh)) return false;
+  const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+  const material = materials[hit.face?.materialIndex ?? 0];
+  return !!material && material.visible && (!material.transparent || material.opacity >= 0.98);
+}
 
 canvas.addEventListener('pointerdown', (event) => {
-  sakuraPointerStart = event.button === 0 ? { x: event.clientX, y: event.clientY } : null;
+  activePointers.add(event.pointerId);
+  sakuraPointerStart = event.button === 0 && event.isPrimary && activePointers.size === 1
+    ? { x: event.clientX, y: event.clientY, id: event.pointerId, dragged: false }
+    : null;
+});
+canvas.addEventListener('pointermove', (event) => {
+  const start = sakuraPointerStart;
+  if (start?.id === event.pointerId && Math.hypot(event.clientX - start.x, event.clientY - start.y) > 7) {
+    start.dragged = true;
+  }
 });
 canvas.addEventListener('pointerup', (event) => {
+  activePointers.delete(event.pointerId);
   const start = sakuraPointerStart;
   sakuraPointerStart = null;
-  if (!start || Math.hypot(event.clientX - start.x, event.clientY - start.y) > 7) return;
+  if (!start || start.id !== event.pointerId || start.dragged ||
+      Math.hypot(event.clientX - start.x, event.clientY - start.y) > 7) return;
 
   const rect = canvas.getBoundingClientRect();
   if (rect.width <= 0 || rect.height <= 0) return;
@@ -216,12 +256,40 @@ canvas.addEventListener('pointerup', (event) => {
     -((event.clientY - rect.top) / rect.height) * 2 + 1,
   );
   sakuraRaycaster.setFromCamera(sakuraPointer, camera);
+  if (world.assembly.finished && !vendingPanel.isOpen()) {
+    const machines = world.street.vending;
+    const hits = sakuraRaycaster.intersectObjects(machines.map((machine) => machine.pickRoot), true);
+    const hit = hits.find((candidate) => isWorldVisible(candidate.object));
+    if (hit) {
+      const machine = machines.find((candidate) => candidate.pickRoot === hit.object ||
+        candidate.pickRoot.getObjectById(hit.object.id));
+      // Limit the second ray to objects in front of the cabinet; ignore glass, rain and pick proxies.
+      sakuraRaycaster.far = Math.max(0, hit.distance - 0.025);
+      const blocked = sakuraRaycaster.intersectObject(world.root, true).some(isPurchaseBlocker);
+      sakuraRaycaster.far = Infinity;
+      if (machine && !blocked) {
+        vendingPanel.open(machine);
+        return;
+      }
+    }
+  }
   if (sakuraRaycaster.intersectObject(world.street.sakura.pickRoot, true).length > 0) {
     sakuraPanel.setOpen(true);
   }
 });
-canvas.addEventListener('pointercancel', () => { sakuraPointerStart = null; });
-window.addEventListener('beforeunload', () => sakuraPanel.destroy());
+canvas.addEventListener('pointercancel', (event) => {
+  activePointers.delete(event.pointerId);
+  sakuraPointerStart = null;
+});
+window.addEventListener('blur', () => {
+  activePointers.clear();
+  sakuraPointerStart = null;
+});
+window.addEventListener('beforeunload', () => {
+  sakuraPanel.destroy();
+  vendingPanel.destroy();
+  bottleDrag.destroy();
+});
 
 /* ---------------- 主循环 ---------------- */
 const clock = new THREE.Clock();
@@ -230,7 +298,7 @@ let elapsed = 0;
 function frame(): void {
   const dt = Math.min(clock.getDelta(), 0.05);
   elapsed += dt;
-  rig.update(dt);
+  if (!bottleDrag.isActive()) rig.update(dt);
   world.update(elapsed, dt, camera);
   pipeline.render(elapsed, dt);
   // 帧率守卫：只有真的跑不动才退档，正常设备一直保持最高清晰度
