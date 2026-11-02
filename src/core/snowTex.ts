@@ -59,8 +59,8 @@ export function snowSurfaceTex(): THREE.Texture {
   t.colorSpace = THREE.SRGBColorSpace;
   t.wrapS = THREE.RepeatWrapping;
   t.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(6, 6);
-  t.anisotropy = 4;
+  t.repeat.set(1, 1);
+  t.anisotropy = 8;
   cached = t;
   return t;
 }

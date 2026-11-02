@@ -115,37 +115,28 @@ export function asphaltTex(): THREE.Texture {
   return cached('asphalt', () => {
     const S = 512;
     const [c, ctx] = mk(S, S);
-    ctx.fillStyle = '#333a48';
+    ctx.fillStyle = '#454c56';
     ctx.fillRect(0, 0, S, S);
     const r = rng(7);
-    // 湿斑
-    for (let i = 0; i < 26; i++) {
-      const x = r() * S;
-      const y = r() * S;
-      const rad = 26 + r() * 110;
-      const g = ctx.createRadialGradient(x, y, 0, x, y, rad);
-      g.addColorStop(0, `rgba(20,24,33,${0.14 + r() * 0.2})`);
-      g.addColorStop(1, 'rgba(20,24,33,0)');
-      ctx.fillStyle = g;
-      ctx.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+    // Dry mineral aggregate; wetness is supplied by the weather layer, never baked in.
+    for (let i = 0; i < 6800; i++) {
+      const value = 59 + Math.floor(r() * 34);
+      ctx.fillStyle = `rgba(${value},${value + 6},${value + 13},0.32)`;
+      const size = 0.7 + r() * 1.6;
+      ctx.fillRect(r() * S, r() * S, size, size);
     }
-    speckle(ctx, S, S, 11, 5200, 0.045);
-    // 细裂纹
-    ctx.strokeStyle = 'rgba(18,21,28,0.5)';
-    ctx.lineWidth = 1.2;
-    for (let i = 0; i < 7; i++) {
-      let x = r() * S;
-      let y = r() * S;
-      ctx.beginPath();
-      ctx.moveTo(x, y);
-      for (let k = 0; k < 8; k++) {
-        x += (r() - 0.5) * 60;
-        y += (r() - 0.5) * 34;
-        ctx.lineTo(x, y);
+    ctx.strokeStyle = 'rgba(28,34,42,0.24)';
+    ctx.lineWidth = 1.1;
+    for (let i = 0; i < 3; i++) {
+      let x = 60 + r() * 390, y = 70 + r() * 350;
+      ctx.beginPath(); ctx.moveTo(x, y);
+      for (let k = 0; k < 5; k++) {
+        x += (r() - 0.5) * 28; y += 9 + r() * 18; ctx.lineTo(x, y);
       }
       ctx.stroke();
     }
-    return finish(c, { repeat: [3, 3] });
+    // UVs already carry world-space tiling; multiplying repeat again caused dense patterns.
+    return finish(c, { repeat: [1, 1] });
   });
 }
 
@@ -153,30 +144,28 @@ export function sidewalkTex(): THREE.Texture {
   return cached('sidewalk', () => {
     const S = 512;
     const [c, ctx] = mk(S, S);
-    // 底色不再用比砖块暗很多的 #3d434f。
-    // 原来底色和砖块差 ~40 个色阶、缝只有 2px，缩小时每一条缝都是一个
-    // 独立采样点，mipmap 平均出来的中间灰和两侧亮块互相打架，
-    // 远处就织成一片网格状波纹。现在底色只比砖块暗 ~12 个色阶，
-    // 缝宽 3px 且有半透明过渡，缩小时的方差大幅下降。
-    ctx.fillStyle = '#565c69';
+    ctx.fillStyle = '#747a7e';
     ctx.fillRect(0, 0, S, S);
-    const n = 8;
-    const t = S / n;
     const r = rng(23);
-    for (let y = 0; y < n; y++) {
-      for (let x = 0; x < n; x++) {
-        const v = 84 + Math.floor(r() * 22);
-        ctx.fillStyle = `rgb(${v},${v + 5},${v + 13})`;
-        // 砖块之间留 3px，缝由底色透出
-        ctx.fillRect(x * t + 3, y * t + 3, t - 6, t - 6);
-        // 上沿高光也压淡：原来是 0.05 纯白细线，同样是高频细节
-        ctx.fillStyle = 'rgba(255,255,255,0.035)';
-        ctx.fillRect(x * t + 3, y * t + 3, t - 6, 2);
+    const bw = 64, bh = 32;
+    // 30 × 15 cm running bond. Wrapped end bricks make the atlas tile seamlessly.
+    for (let row = 0; row < 16; row++) {
+      const offset = row % 2 ? -bw / 2 : 0;
+      for (let col = 0; col < 8; col++) {
+        const v = 125 + Math.floor(r() * 15);
+        for (const wrap of [-S, 0, S]) {
+          const x = col * bw + offset + wrap, y = row * bh;
+          ctx.fillStyle = `rgb(${v},${v + 3},${v + 5})`;
+          ctx.fillRect(x + 1.5, y + 1.5, bw - 3, bh - 3);
+          ctx.fillStyle = 'rgba(240,241,234,0.15)';
+          ctx.fillRect(x + 2, y + 2, bw - 4, 1.2);
+          ctx.fillStyle = 'rgba(57,65,70,0.12)';
+          ctx.fillRect(x + 2, y + bh - 3, bw - 4, 1);
+        }
       }
     }
-    // 斑点数量减半：每个 1~3px 的亮点在远景都是噪声源
-    speckle(ctx, S, S, 31, 1200, 0.03);
-    return finish(c, { repeat: [2, 2] });
+    speckle(ctx, S, S, 31, 1600, 0.022);
+    return finish(c, { repeat: [1, 1] });
   });
 }
 

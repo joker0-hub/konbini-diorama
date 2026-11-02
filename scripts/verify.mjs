@@ -379,10 +379,10 @@ check(
   envOk.map((e) => `${e.want}:${e.snow}/${e.snowOpacity}`).join(' '),
 );
 check(
-  '地面湿度只由天气决定（晴 0.16 / 雨 1 / 雪 0.05）',
+  '地面湿度遵循天气，积满雪后抑制裸地反光（晴 0.16 / 雨 1 / 满雪 0.006）',
   clears.every((e) => Math.abs(e.wetness - 0.16) < 1e-3) &&
     rainy.every((e) => e.wetness === 1) &&
-    snowies.every((e) => Math.abs(e.wetness - 0.05) < 1e-3) &&
+    snowies.every((e) => Math.abs(e.wetness - 0.006) < 1e-3) &&
     rainy.every((e) => e.wetOpacity > 0.3) &&
     clears.every((e) => e.wetOpacity < 0.2),
   envOk.map((e) => `${e.want}:${e.wetness}/${e.wetOpacity}`).join(' '),
@@ -959,11 +959,11 @@ check('街道物件不越出台座', outside.bad.length === 0, JSON.stringify(ou
     root.updateMatrixWorld(true);
     const r = (v) => +v.toFixed(2);
 
-    // 黄色导盲砖（P.tactile = #d9c04a）
+    // 黄色导盲砖（P.tactile = #c9a643）
     const tactile = [];
     root.traverse((o) => {
       if (!o.isMesh || !o.material?.color) return;
-      if ('#' + o.material.color.getHexString() !== '#d9c04a') return;
+      if ('#' + o.material.color.getHexString() !== '#c9a643') return;
       if (!o.geometry) return;
       if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
       const bb = o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld);

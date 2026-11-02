@@ -11,7 +11,8 @@ const executablePath = [
 if (!executablePath) throw new Error('Install Chrome/Edge or set CHROME_PATH.');
 const base = process.argv[2] || 'http://127.0.0.1:5188/';
 const browser = await puppeteer.launch({ executablePath, headless: true, args: ['--enable-unsafe-swiftshader', '--no-sandbox'] });
-const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+const page = await browser.newPage();
+await page.setViewport({ width: 1280, height: 900 });
 const errors = [];
 page.on('pageerror', (error) => errors.push(error.message));
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -91,6 +92,10 @@ try {
   await waitIdle();
   const ids = await page.evaluate(() => window.__konbini.world.street.vending[0].getBottles().map((b) => b.id));
   check('The tray retains exactly three bottles', ids.length === 3);
+
+  // Purchases now approach the cabinet; widen the view to exercise ground/bin dragging.
+  await page.evaluate(() => window.__konbini.view([11, 4, 0.6], [2.8, 0.75, -2.5]));
+  await sleep(350);
 
   const cameraBefore = await page.evaluate(() => window.__konbini.camera.position.toArray());
   await hold(ids[0]);

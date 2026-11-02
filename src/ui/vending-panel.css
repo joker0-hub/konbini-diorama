@@ -1,4 +1,4 @@
-.vending-panel {
+.interaction-panel {
   --vending-accent: #a6d4ff;
   --vending-edge: rgba(143, 190, 245, 0.28);
   position: fixed;
@@ -21,34 +21,34 @@
   user-select: none;
 }
 
-.vending-panel[data-variant="red"] {
+.interaction-panel[data-variant="red"] {
   --vending-accent: #ffc0ad;
   --vending-edge: rgba(247, 157, 136, 0.3);
 }
 
-.vending-panel::backdrop {
+.interaction-panel::backdrop {
   background: transparent;
 }
 
-.vending-panel[open] {
+.interaction-panel[open] {
   animation: vending-panel-in 0.18s ease-out both;
 }
 
-.vending-panel__header {
+.interaction-panel__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
 
-.vending-panel__eyebrow {
+.interaction-panel__eyebrow {
   color: var(--vending-accent);
   font-size: 9px;
   font-weight: 650;
   letter-spacing: 0.16em;
 }
 
-.vending-panel__header h2 {
+.interaction-panel__header h2 {
   margin: 5px 0 0;
   font-size: 16px;
   line-height: 1.4;
@@ -56,7 +56,7 @@
   letter-spacing: 0.04em;
 }
 
-.vending-panel__close {
+.interaction-panel__close {
   display: grid;
   place-items: center;
   flex: 0 0 34px;
@@ -70,12 +70,12 @@
   cursor: pointer;
 }
 
-.vending-panel__close:hover {
+.interaction-panel__close:hover {
   color: #fff;
   background: rgba(255, 255, 255, 0.1);
 }
 
-.vending-panel__close svg {
+.interaction-panel__close svg {
   width: 16px;
   height: 16px;
   fill: none;
@@ -84,7 +84,7 @@
   stroke-linecap: round;
 }
 
-.vending-panel__hint {
+.interaction-panel__hint {
   margin: 10px 0 14px;
   color: #b3bfce;
   font-size: 10px;
@@ -129,7 +129,7 @@
   cursor: wait;
 }
 
-.vending-panel__close:focus-visible,
+.interaction-panel__close:focus-visible,
 .vending-panel__product:focus-visible {
   outline: 2px solid var(--vending-accent);
   outline-offset: 3px;
@@ -229,13 +229,13 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .vending-panel[open] { animation: none; }
+  .interaction-panel[open] { animation: none; }
   .vending-panel__product { transition: none; }
 }
 
 @media (max-height: 440px) {
-  .vending-panel { padding: 13px 17px; }
-  .vending-panel__hint { margin: 6px 0 9px; }
+  .interaction-panel { padding: 13px 17px; }
+  .interaction-panel__hint { margin: 6px 0 9px; }
   .vending-panel__product { min-height: 91px; padding: 9px 4px 7px; }
   .vending-panel__bottle { height: 33px; margin-bottom: 3px; }
   .vending-panel__bottle-label { top: 10px; }

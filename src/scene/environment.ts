@@ -426,6 +426,7 @@ export interface EnvDetails {
   snow: number;
   snowOnGround: number;
   wetness: number;
+  meltwater: number;
   starOpacity: number;
   keyIntensity: number;
   fogDensity: number;
@@ -452,6 +453,7 @@ export class Environment {
    * 而且它必须能从任意中间状态接着长/接着化，不能每次切换就归零。
    */
   private snow = 0;
+  private meltwater = 0;
   /** 积雪累积速率（每秒进度）：约 12 秒铺满，之后停在 1 */
   private snowRate = 1 / 12;
   /** 融雪速率：比积雪快一些，切走雪天时不至于拖太久 */
@@ -505,7 +507,8 @@ export class Environment {
       rain: p.rainDensity,
       snow: p.snowAmount,
       snowOnGround: this.snow,
-      wetness: p.wetness,
+      wetness: this.surfaceWetness(),
+      meltwater: this.meltwater,
       starOpacity: p.starOpacity,
       keyIntensity: p.keyIntensity,
       fogDensity: p.fogDensity,
@@ -537,6 +540,7 @@ export class Environment {
       this.current = this.to;
       this.t = 1;
       this.snow = this.snowTarget;
+      this.meltwater = 0;
       this.applyLights(this.to);
       this.applyRender(this.to);
       // instant 用于截图/调试：雪也要立刻到位，否则等 12 秒没法拍
@@ -571,7 +575,11 @@ export class Environment {
 
   update(dt: number): void {
     // 积雪独立于时段过渡：按自己的速率朝目标爬/退，到 1 就停
+    const before = this.snow;
     this.updateSnow(dt);
+    this.meltwater = Math.min(0.8, this.meltwater * Math.exp(-dt / 8) + Math.max(0, before - this.snow) * 1.6);
+    if (this.meltwater < 0.001) this.meltwater = 0;
+    this.targets.setWetness(this.surfaceWetness());
 
     if (this.t >= 1) return;
     this.t = Math.min(1, this.t + dt / this.duration);
@@ -630,9 +638,13 @@ export class Environment {
     T.applySignage(p.signage);
     T.applyInterior(p.interior);
     T.setRainDensity(p.rainDensity);
-    T.setWetness(p.wetness);
+    T.setWetness(this.surfaceWetness());
     T.setStarOpacity(p.starOpacity);
     T.setSnowfall(p.snowAmount);
+  }
+
+  private surfaceWetness(): number {
+    return Math.max(this.current.wetness, this.meltwater) * (1 - this.snow * 0.88);
   }
 
   /** 雾 / 背景 / 后处理：这部分要等 main.ts 把引用交进来 */

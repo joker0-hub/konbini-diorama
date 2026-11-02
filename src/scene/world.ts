@@ -14,7 +14,7 @@ import { Assembly, phaseWindow } from './assembly';
 import { mergeStaticMeshes } from './merge';
 import { Environment, type EnvState } from './environment';
 import { buildStarfield } from './stars';
-import { buildSnow } from './snow';
+import { buildSnow, type SnowPatch } from './snow';
 import { buildSnowfall } from './snowfall';
 import { createWet, type WetHandles } from './wet';
 import type { SignalHandles } from './signal';
@@ -28,7 +28,7 @@ export interface World {
   street: StreetRefs;
   rain: RainHandles;
   assembly: Assembly;
-  update: (t: number, dt: number, cam: THREE.Camera) => void;
+  update: (t: number, dt: number, cam: THREE.Camera, weatherDt?: number) => void;
   /** 开关静态几何合并（截图调试时可能需要关掉） */
   setMergeEnabled: (on: boolean) => void;
   /** 立即执行合并 */
@@ -111,10 +111,17 @@ export function buildWorld(envInit: EnvState = { time: 'day', weather: 'rain' })
   coneB.layers.set(1);
 
   /* ---------------- 雪 ---------------- */
-  // 积雪（平面薄板，随时间变厚）+ 飘雪（实例化粒子）
-  const snow = buildSnow();
+  // Use the actual cabinet/bin bounds before assembly moves or merges their meshes.
+  const smallSnowSurfaces: SnowPatch[] = [...street.vending.map((m) => m.pickRoot), ...street.recyclingBins].map((object, i) => {
+    object.updateWorldMatrix(true, true);
+    const bounds = new THREE.Box3().setFromObject(object);
+    return { x0: bounds.min.x + 0.012, x1: bounds.max.x - 0.012,
+      z0: bounds.min.z + 0.012, z1: bounds.max.z - 0.012,
+      y: bounds.max.y + 0.003, scale: 0.65, kind: 'cap', name: `snow-street-cap-${i}` };
+  });
+  const snow = buildSnow(smallSnowSurfaces);
   root.add(snow.root);
-  const snowfall = buildSnowfall(root, { count: 1800, height: 11, area: 15 });
+  const snowfall = buildSnowfall(root, { count: 1800, height: 11, area: 16.4, surfaces: snow.surfaces });
 
   /* ---------------- 入场动画 ---------------- */
   // 分层入场：底座 → 铺装 → 建筑外壳 → 内装 → 屋顶 → 街道 → 小道具。
@@ -253,9 +260,9 @@ export function buildWorld(envInit: EnvState = { time: 'day', weather: 'rain' })
   let doorPhase: 'closed' | 'opening' | 'open' | 'closing' = 'closed';
   let doorProgress = 0;
 
-  const update = (t: number, dt: number, cam: THREE.Camera) => {
+  const update = (t: number, dt: number, cam: THREE.Camera, weatherDt = dt) => {
     assembly.update(dt);
-    environment.update(dt);
+    environment.update(weatherDt);
     rain.update(t, dt, cam);
     stars.update(t, cam, starOpacity);
     street.sakura.update(t, dt);

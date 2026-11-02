@@ -17,6 +17,7 @@ import { buildTrafficSignal, type SignalHandles } from './signal';
 import { buildSakuraTree, type SakuraTreeHandles } from './sakura';
 import { buildVendingMachine, type VendingHandles } from './vending';
 import { BottlePhysics } from '../core/bottle-physics';
+import { buildRecyclingBin } from './recycling-bin';
 
 const CURB = L.curb;
 
@@ -185,15 +186,14 @@ function buildVending(
   // 回收箱：每台机器都放在自己「外侧」，不要卡在红蓝两台中间。
   // 局部 -x 旋转后朝 +z（面向红机一侧），所以蓝机要翻到 +x。
   const binX = variant === 'blue' ? 0.74 : -0.74;
-  const bin = addBox(g, toon(0x2f6bd8), 0.42, 0.92, 0.42, binX, 0, 0.14, { r: 0.04 });
-  bin.name = 'vending-bin';
-  addBox(g, toon(0x1e232b), 0.32, 0.11, 0.02, binX, 0.64, 0.355, { cast: false });
-  addMesh(g, new THREE.CircleGeometry(0.068, 12), toon(0x12151b), binX, 0.7, 0.362).castShadow = false;
+  buildRecyclingBin(g, binX, 0.14, {
+    width: 0.42, height: 0.92, depth: 0.42, color: 0x356da2, kind: 'mixed', name: 'vending-bin',
+  });
   recyclingBins.push(registerRecyclingBin(g, new THREE.Vector3(binX, 0.46, 0.14), new THREE.Vector3(0.42, 0.92, 0.42), physics));
   return machine;
 }
 
-/** Separate pick proxies survive the static merge; the visible bins keep their original design. */
+/** Pick proxies survive the static merge and match the full visible bin envelope. */
 function registerRecyclingBin(parent: THREE.Object3D, center: THREE.Vector3, size: THREE.Vector3, physics: BottlePhysics): THREE.Mesh {
   const target = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), new THREE.MeshBasicMaterial({ visible: false }));
   target.name = 'recycling-bin-target';
@@ -701,9 +701,10 @@ function buildTrashBins(parent: THREE.Object3D, x: number, z: number, physics: B
   const colors = [P.trashGreen, P.trashBlue, P.trashOrange];
   colors.forEach((c, i) => {
     const bx = i * 0.33 - 0.33;
-    addBox(g, toon(c), 0.3, 0.72, 0.33, bx, 0, 0, { r: 0.03 });
-    addBox(g, toon(0x1e232b), 0.32, 0.055, 0.35, bx, 0.72, 0, { r: 0.02 });
-    addBox(g, toon(0x181c23), 0.18, 0.12, 0.018, bx, 0.48, 0.17);
+    buildRecyclingBin(g, bx, 0, {
+      width: 0.32, height: 0.775, depth: 0.35, color: c,
+      kind: (['paper', 'cans', 'pet'] as const)[i],
+    });
     recyclingBins.push(registerRecyclingBin(g, new THREE.Vector3(bx, 0.3875, 0), new THREE.Vector3(0.32, 0.775, 0.35), physics));
   });
   // 三只桶背后原本还有一块 1.06×0.28 的浅灰背板，顶边高过桶盖，

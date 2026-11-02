@@ -1,163 +1,152 @@
-/**
- * 积雪。
- *
- * 目标：切到下雪后，地面、屋顶、车顶、雨棚这些"朝上的面"上
- * 缓慢长出一层薄雪，到达上限就停住 —— 不要变成厚雪堆。
- *
- * 实现选择：**不去改每个物体的材质**，而是在给定矩形上叠一层白色薄板，
- * 厚度随时间从 0 长到 maxDepth。
- *
- * 为什么这么做：
- * - 改材质（往 toon 里混白）要遍历全场景并按面法线判断朝上，
- *   而且静态几何已经合并成一个网格，法线信息还在但没法接受"部分变白"。
- * - 叠薄板只增加很少的 draw call，而且天然拥有"厚度"这个可动画量，
- *   "缓慢变厚"直接就是 scale.y 的插值，不需要任何着色器改动。
- *
- * 关键约束（避免"雪厚了"）：
- * - 上限 2.2cm —— 微缩模型比例下，超过 3cm 就会盖掉地砖纹理和路缘石细节。
- * - 增长用 easeOut，前段快后段慢，视觉上是"落雪积起来然后停"。
- * - 边缘留一点内缩，避免和墙面/立面的描边打架。
- */
-
+/** Patchy, shallow snow: coverage and depth grow together; exposed travel paths stay readable. */
 import * as THREE from 'three';
 import { L } from './layout';
-import { toon } from '../core/materials';
+import { toon, RAMP_SOFT } from '../core/materials';
 import { snowSurfaceTex } from '../core/snowTex';
 
-/** 雪面在世界坐标里的水平矩形 */
 export interface SnowPatch {
   x0: number; x1: number; z0: number; z1: number;
-  /** 该矩形所处的高度（雪从这往上长） */
   y: number;
-  /** 相对厚度系数：屋顶/车顶这类孤立的面积薄一点，地面满一点 */
   scale?: number;
-  /** 圆角半径，用于贴合圆形/不规则顶面 */
-  round?: boolean;
+  kind?: 'road' | 'walk' | 'cap';
+  name?: string;
 }
-
 export interface SnowHandles {
   root: THREE.Group;
-  /** 0..1 的积雪进度（1 = 到达上限） */
   update: (snowAmount: number) => void;
-  /** 当前最大厚度（米） */
   setMaxDepth: (d: number) => void;
+  surfaces: readonly SnowPatch[];
 }
+const MAX_DEPTH = 0.045;
 
-/** 雪的固有色：略偏蓝白，纯白在三渲二里会糊成一片 */
-const SNOW_COLOR = 0xeaf0f8;
-/** 默认最大厚度：4cm。
- *  2.2cm 在俯视角度下几乎看不出（地砖缝和路缘石会把它"吃掉"），
- *  但再厚就会盖掉细节。4cm 是"看得见一层、又不失细节"的甜点。 */
-const DEFAULT_MAX_DEPTH = 0.04;
-/** 硬上限：任何参数组合下雪都不会超过 4.5cm */
-const MAX_HARD_DEPTH = 0.045;
+const FIELD = /* glsl */ `
+  uniform float uSnowAmount;
+  uniform float uSurfaceKind;
+  varying vec3 vSnowWorld;
+  float snowHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+  float snowNoise(vec2 p) {
+    vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(snowHash(i), snowHash(i + vec2(1., 0.)), f.x),
+      mix(snowHash(i + vec2(0., 1.)), snowHash(i + vec2(1., 1.)), f.x), f.y);
+  }
+`;
 
-export function buildSnow(): SnowHandles {
+export function buildSnow(extraSurfaces: SnowPatch[] = []): SnowHandles {
   const root = new THREE.Group();
   root.name = 'snow-layer';
-  // 不参与描边：雪的边缘靠自身色阶过渡，加描边会像贴纸
-  root.layers.set(1);
+  root.layers.set(2);
+  const progress = { value: 0 };
+  const materials = new Map<string, THREE.MeshToonMaterial>();
+  const patches: { mesh: THREE.Mesh; surface: SnowPatch }[] = [];
+  const surfaces: SnowPatch[] = [];
+  let maxDepth = 0.04;
+  let amount = 0;
 
-  // 用带轻微噪点的雪面材质：纯白在三渲二里会糊成一块白板
-  const mat = toon(SNOW_COLOR, { map: snowSurfaceTex() });
-  const patches: { mesh: THREE.Mesh; flat: number; baseY: number }[] = [];
-
-  const H = L.half;
-  const S = L.store;
-  const C = L.curb;
-
-  /**
-   * 加一块雪面。
-   * `baseThickness` 是这块面在"进度 1"时的厚度系数，用来做分层次的观感：
-   * 地面上薄一点（否则盖住地砖）、屋顶上稍厚一点（风不会吹走）。
-   */
-  const addPatch = (
-    x0: number, x1: number, z0: number, z1: number,
-    y: number, baseThickness = 1,
-  ): void => {
-    const w = x1 - x0;
-    const d = z1 - z0;
-    if (w <= 0.01 || d <= 0.01) return;
-    const geo = new THREE.BoxGeometry(w, 1, d);
-    const m = new THREE.Mesh(geo, mat);
-    m.position.set((x0 + x1) / 2, y, (z0 + z1) / 2);
-    m.castShadow = false;
-    m.receiveShadow = true;
-    m.layers.set(1);
-    // 关键：标记为"动态"，不让静态几何合并把它吃掉。
-    // 合并会把 toon 材质的网格并入 merged-static 并从原组摘除，
-    // 雪面每帧都在改 scale.y，必须留在自己的组里。
-    m.userData.noMerge = true;
-    root.add(m);
-    patches.push({ mesh: m, flat: baseThickness, baseY: y });
+  const material = (kind: SnowPatch['kind']) => {
+    const key = kind ?? 'cap';
+    const cached = materials.get(key);
+    if (cached) return cached;
+    const mat = toon(0xeaf0f8, { map: snowSurfaceTex(), ramp: RAMP_SOFT }).clone();
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.uSnowAmount = progress;
+      shader.uniforms.uSurfaceKind = { value: kind === 'road' ? 0 : kind === 'walk' ? 1 : 2 };
+      shader.vertexShader = 'varying vec3 vSnowWorld;\n' + shader.vertexShader;
+      shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>',
+        '#include <begin_vertex>\nvSnowWorld = (modelMatrix * vec4(position, 1.0)).xyz;');
+      shader.fragmentShader = FIELD + shader.fragmentShader;
+      shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `
+        #include <map_fragment>
+        vec2 p = vSnowWorld.xz;
+        float field = snowNoise(p * 2.4) * 0.68 + snowNoise(p * 12.0) * 0.24 + snowNoise(p * 42.0) * 0.08;
+        float wear = 0.0;
+        if (uSurfaceKind < 0.5) {
+          float lanes = min(min(abs(p.y - 5.0), abs(p.y - 6.25)), min(abs(p.x - 5.7), abs(p.x - 7.0)));
+          wear = (1.0 - smoothstep(0.13, 0.30, lanes)) * 0.72;
+        } else if (uSurfaceKind < 1.5) {
+          // Alternating compressed footprints on the open front pavement.
+          float stepId = floor((p.x + 8.0) / 0.46);
+          vec2 foot = vec2(mod(p.x + 8.0, 0.46) - 0.23, p.y - 2.5 - mod(stepId, 2.0) * 0.20);
+          wear = (1.0 - smoothstep(0.65, 1.0, length(foot / vec2(0.13, 0.065)))) * 0.9;
+          // The entrance under the canopy is sheltered, even when outdoor snow is full.
+          if (p.x > -0.02 && p.x < 2.04 && p.y > 0.8 && p.y < 2.18) discard;
+        }
+        float cover = smoothstep(field - 0.06, field + 0.06, uSnowAmount * 1.18 - wear);
+        if (cover < 0.45) discard;
+        diffuseColor.rgb *= mix(0.78, 1.0, cover) * (0.95 + 0.05 * snowNoise(p * 7.0));
+      `);
+    };
+    mat.customProgramCacheKey = () => 'snow-coverage-v1-' + key;
+    materials.set(key, mat);
+    return mat;
   };
 
-  /* ---------------- 地面：沥青 ---------------- */
-  // 主路（z 从 road.z 到台座边）
-  addPatch(-H, H, L.road.z, H, 0.004, 1);
-  // 右侧竖路（x 从 road.x 到台座边）
-  addPatch(L.road.x, H, -H, L.road.z, 0.004, 1);
+  const add = (surface: SnowPatch): void => {
+    const { x0, x1, z0, z1, y } = surface;
+    const w = x1 - x0, d = z1 - z0;
+    if (w <= 0.01 || d <= 0.01) return;
+    const geo = new THREE.BoxGeometry(w, 1, d, Math.max(2, Math.ceil(w / 0.32)), 1, Math.max(2, Math.ceil(d / 0.32)));
+    geo.translate(0, 0.5, 0);
+    const position = geo.attributes.position;
+    const uv = geo.attributes.uv;
+    for (let i = 0; i < position.count; i++) {
+      const x = position.getX(i), z = position.getZ(i);
+      if (position.getY(i) > 0.5) {
+        const edge = Math.min(w / 2 - Math.abs(x), d / 2 - Math.abs(z));
+        const rolloff = THREE.MathUtils.smoothstep(edge, 0, Math.min(0.16, w * 0.25, d * 0.25));
+        const ripple = 0.90 + 0.10 * Math.sin((x + x0) * 5.3) * Math.cos((z + z0) * 4.7);
+        position.setY(i, ripple * (0.38 + 0.62 * rolloff));
+      }
+      uv.setXY(i, (x + (x0 + x1) / 2) / 1.2, (z + (z0 + z1) / 2) / 1.2);
+    }
+    geo.computeVertexNormals();
+    const mesh = new THREE.Mesh(geo, material(surface.kind));
+    mesh.name = surface.name ?? 'snow-surface';
+    mesh.position.set((x0 + x1) / 2, y, (z0 + z1) / 2);
+    // Layer 2 is omitted from the outline pass; granular snow edges must stay soft.
+    mesh.layers.set(2);
+    mesh.castShadow = false;
+    mesh.receiveShadow = true;
+    mesh.userData.noMerge = true;
+    mesh.userData.snowSurface = surface;
+    root.add(mesh);
+    patches.push({ mesh, surface });
+    surfaces.push(surface);
+  };
 
-  /* ---------------- 人行道（L 形） ---------------- */
-  // 沿前街的一条（人行道是主要观感面，给满厚度）
-  addPatch(-H, L.walk.xOuter, L.walk.zInner, L.walk.zOuter, C + 0.002, 1.0);
-  // 沿右侧街的一条
-  addPatch(L.walk.xInner, L.walk.xOuter, -H, L.walk.zInner, C + 0.002, 1.0);
-
-  /* ---------------- 便利店屋顶 ---------------- */
-  // 屋顶给满厚度（上限），但不允许超过总上限
-  addPatch(S.x0, S.x1, S.z0, S.z1, S.roofY + 0.02, 1.0);
-
-  /* ---------------- 入口雨棚 ---------------- */
-  // 雨棚顶面：canW 由 store.ts 内的约束推出，这里按同样的规则算
+  const H = L.half, S = L.store, C = L.curb;
+  add({ x0: -H, x1: H, z0: L.road.z, z1: H, y: 0.017, kind: 'road', name: 'snow-front-road' });
+  add({ x0: L.road.x, x1: H, z0: -H, z1: L.road.z, y: 0.017, kind: 'road', name: 'snow-side-road' });
+  add({ x0: -H, x1: L.walk.xOuter - 0.20, z0: L.walk.zInner, z1: L.walk.zOuter - 0.20, y: C + 0.009, kind: 'walk' });
+  add({ x0: L.walk.xInner, x1: L.walk.xOuter - 0.20, z0: -H, z1: L.walk.zInner, y: C + 0.009, kind: 'walk' });
+  // Curb tops are 3 cm above the pavement. Separate strips avoid overlapping snow slabs.
+  add({ x0: -H, x1: L.walk.xOuter, z0: L.walk.zOuter - 0.20, z1: L.walk.zOuter, y: C + 0.034, scale: 0.72 });
+  add({ x0: L.walk.xOuter - 0.20, x1: L.walk.xOuter, z0: -H, z1: L.walk.zOuter - 0.20, y: C + 0.034, scale: 0.72 });
+  // The roof slab is 18 cm thick; roofY is its bottom, not its top.
+  const roofY = S.roofY + 0.18;
+  add({ x0: S.x0 - 0.10, x1: S.x1 + 0.10, z0: S.z0 - 0.10, z1: S.z1 + 0.10, y: roofY + 0.003, name: 'snow-store-roof' });
+  for (const z of [S.z0 - 0.17, S.z1 + 0.17]) add({ x0: S.x0 - 0.23, x1: S.x1 + 0.23, z0: z - 0.065, z1: z + 0.065, y: roofY + 0.423, scale: 0.7 });
+  for (const x of [S.x0 - 0.17, S.x1 + 0.17]) add({ x0: x - 0.065, x1: x + 0.065, z0: S.z0 - 0.10, z1: S.z1 + 0.10, y: roofY + 0.423, scale: 0.7 });
+  for (const x of [-3.9, -1.9]) add({ x0: x - 0.54, x1: x + 0.54, z0: -5.62, z1: -4.98, y: roofY + 0.758, scale: 0.8 });
+  add({ x0: 0.26, x1: 1.54, z0: -6.34, z1: -5.06, y: roofY + 1.193, scale: 0.8 });
   const canX = (L.door.x0 + L.door.x1) / 2;
   const canW = Math.min(2.3, 2 * (S.x1 - 0.16 - canX));
-  const canTop = S.glassTop - 0.22 - 0.055;
-  addPatch(canX - canW / 2, canX + canW / 2, S.z1 + 0.02, S.z1 + 1.2, canTop + 0.01, 0.9);
-
-  /* ---------------- 自动贩卖机顶 ---------------- */
-  // 贩卖机在 x≈2.6、朝向街道；顶面高度约 1.9
-  addPatch(2.24, 3.06, -3.3, -1.2, 1.9, 0.85);
-
-  /* ---------------- 邻楼屋顶 ---------------- */
+  add({ x0: canX - canW / 2 + 0.02, x1: canX + canW / 2 - 0.02, z0: S.z1 + 0.32, z1: S.z1 + 1.38, y: S.glassTop - 0.22 + 0.003, scale: 0.8, name: 'snow-canopy' });
   const N = L.neighbor;
-  addPatch(N.x0, N.x1, N.z0, N.z1, N.h + 0.4, 1.0);
+  add({ x0: N.x0, x1: N.x1, z0: N.z0, z1: N.z1, y: N.h + 0.403 });
+  extraSurfaces.forEach(add);
 
-  /* ---------------- 路缘石沿线 ---------------- */
-  // 路缘石窄，单独给一条薄雪，让"雪盖住边"这件事在低角度能看出来
-  // 路缘石窄，单独给一条薄雪，让"雪盖住边"这件事在低角度能看出来
-  addPatch(-H, L.walk.xOuter, L.walk.zOuter - 0.22, L.walk.zOuter, C + 0.002, 0.75);
-  addPatch(L.walk.xOuter - 0.22, L.walk.xOuter, -H, L.walk.zOuter, C + 0.002, 0.75);
-
-  let maxDepth = DEFAULT_MAX_DEPTH;
-
-  // 关键：创建后立刻把厚度设为 0。
-  // 否则几何体的原始高度是 1（= 1 米），在第一次 update 之前
-  // 雪层就是满厚度的 —— 表现为"雨天屋顶和地面也是白的"。
   const apply = (snowAmount: number): void => {
-    const a = THREE.MathUtils.clamp(snowAmount, 0, 1);
-    root.visible = a > 0.001;
-    if (!root.visible) return;
-    for (const p of patches) {
-      // 厚度上限在这里再夹一次（不只是靠系数）。
-      // 使用者明确要求"雪不要厚了"，所以即使某个 flat 系数写大了，
-      // 也不会突破 MAX_HARD_DEPTH —— 这是最后一道保险。
-      const depth = Math.min(MAX_HARD_DEPTH, maxDepth * p.flat * a);
-      // 几何体原始高度是 1，直接用 scale.y 表达厚度
-      p.mesh.scale.y = Math.max(0.0005, depth);
-      // 盒体原点在中心：要让底面压在 baseY 上，中心就得抬到 baseY + depth/2
-      p.mesh.position.y = p.baseY + depth / 2;
+    amount = THREE.MathUtils.clamp(snowAmount, 0, 1);
+    progress.value = amount;
+    root.visible = amount > 0.001;
+    root.userData.coverage = amount;
+    for (const { mesh, surface } of patches) {
+      mesh.scale.y = Math.max(0.0001, Math.min(MAX_DEPTH, maxDepth * (surface.scale ?? 1) * amount));
     }
   };
-
-  // 初始状态：无雪
   apply(0);
-
   return {
-    root,
-    setMaxDepth(d) {
-      maxDepth = d;
-    },
-    update: apply,
+    root, surfaces, update: apply,
+    setMaxDepth(d) { maxDepth = THREE.MathUtils.clamp(d, 0, MAX_DEPTH); apply(amount); },
   };
 }

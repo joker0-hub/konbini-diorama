@@ -18,21 +18,21 @@ export function createVendingPanel(
 ): VendingPanel {
   const uid = `vending-panel-${++panelCount}`;
   const panel = document.createElement('dialog');
-  panel.className = 'vending-panel';
+  panel.className = 'vending-panel interaction-panel';
   panel.setAttribute('aria-labelledby', `${uid}-title`);
   panel.setAttribute('aria-describedby', `${uid}-hint`);
 
   const header = document.createElement('header');
-  header.className = 'vending-panel__header';
+  header.className = 'vending-panel__header interaction-panel__header';
   const heading = document.createElement('div');
-  heading.innerHTML = '<span class="vending-panel__eyebrow">HOSHINO · DRINKS</span>';
+  heading.innerHTML = '<span class="interaction-panel__eyebrow">HOSHINO · DRINKS</span>';
   const title = document.createElement('h2');
   title.id = `${uid}-title`;
   title.textContent = '选一瓶喜欢的饮品';
   heading.append(title);
 
   const closeButton = document.createElement('button');
-  closeButton.className = 'vending-panel__close';
+  closeButton.className = 'vending-panel__close interaction-panel__close';
   closeButton.type = 'button';
   closeButton.setAttribute('aria-label', '关闭饮品选择');
   closeButton.title = '关闭（Esc）';
@@ -41,7 +41,7 @@ export function createVendingPanel(
 
   const hint = document.createElement('p');
   hint.id = `${uid}-hint`;
-  hint.className = 'vending-panel__hint';
+  hint.className = 'vending-panel__hint interaction-panel__hint';
   hint.textContent = '点击饮品购买，在下方取货口等待掉落';
 
   const products = document.createElement('div');
