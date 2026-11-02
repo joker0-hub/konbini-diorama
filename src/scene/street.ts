@@ -18,6 +18,7 @@ import { buildSakuraTree, type SakuraTreeHandles } from './sakura';
 import { buildVendingMachine, type VendingHandles } from './vending';
 import { BottlePhysics } from '../core/bottle-physics';
 import { buildRecyclingBin } from './recycling-bin';
+import { buildBicycle } from './bicycle';
 
 const CURB = L.curb;
 
@@ -709,77 +710,6 @@ function buildTrashBins(parent: THREE.Object3D, x: number, z: number, physics: B
   });
   // 三只桶背后原本还有一块 1.06×0.28 的浅灰背板，顶边高过桶盖，
   // 从街上看像一块白色长条贴在桶顶上 —— 去掉。
-}
-
-/**
- * 自行车。
- *
- * `y` 是"车轮应该压住的地面高度"，不是组原点。
- *
- * 早期版本直接把 y 传给 group()，但自行车的最低点是轮胎外缘：
- * 轮心在 0.33、轮胎半径 0.32 + 管径 0.026 = 0.346，
- * 所以轮胎底部比组原点低 0.016 —— 整车会陷进地面 1.6cm。
- * 截图里就是"轮子下半截被地砖吃掉了"。
- *
- * 现在改成构建完成后用世界包围盒量一次真实最低点，
- * 再把整组抬起来。这样以后改轮径、改挡泥板都不会再陷。
- */
-function buildBicycle(parent: THREE.Object3D, x: number, y: number, z: number, ry: number): THREE.Group {
-  const g = group(parent, x, y, z, 'bicycle');
-  g.rotation.y = ry;
-  const frame = toon(0x2a3850);
-  const tire = toon(0x171a1f);
-  const rim = toon(0x969da6);
-
-  const wheel = (wx: number) => {
-    const t = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.026, 6, 18), tire);
-    t.position.set(wx, 0.33, 0);
-    g.add(t);
-    const r = new THREE.Mesh(new THREE.TorusGeometry(0.272, 0.011, 5, 16), rim);
-    r.position.set(wx, 0.33, 0);
-    g.add(r);
-    for (let i = 0; i < 4; i++) addBox(g, rim, 0.53, 0.006, 0.006, wx, 0.33, 0, { rz: (i / 4) * Math.PI, cast: false });
-  };
-  wheel(-0.5);
-  wheel(0.5);
-
-  strut(g, frame, [-0.5, 0.33, 0], [-0.02, 0.58, 0], 0.032, true);
-  strut(g, frame, [-0.02, 0.58, 0], [0.4, 0.82, 0], 0.032, true);
-  strut(g, frame, [0.4, 0.82, 0], [0.5, 0.33, 0], 0.032, true);
-  strut(g, frame, [-0.02, 0.58, 0], [0.42, 0.33, 0], 0.032, true);
-  strut(g, frame, [-0.5, 0.33, 0], [0.42, 0.33, 0], 0.028, true);
-  strut(g, toon(0x8d949c), [0.4, 0.82, 0], [0.42, 0.97, 0], 0.028, true);
-  addBox(g, toon(0x1e232b), 0.11, 0.032, 0.44, 0.42, 0.97, 0, { r: 0.02 });
-  const saddle = addBox(g, toon(0x1e232b), 0.24, 0.065, 0.13, -0.06, 0.82, 0, { r: 0.04 });
-  saddle.name = 'bike-saddle';
-  // 座管顶端必须顶到坐垫底面（0.82）。旧版停在 0.78，坐垫下面空 4cm，
-  // 远看就是"坐垫浮在车架上"。
-  const seatPost = strut(g, toon(0x8d949c), [-0.06, 0.82, 0], [-0.02, 0.58, 0], 0.028, true);
-  seatPost.name = 'bike-seat-post';
-  // 车筐
-  const basket = group(g, 0.55, 0.68, 0);
-  addBox(basket, toon(0x8d949c), 0.26, 0.19, 0.32, 0, 0, 0);
-  for (let i = 0; i < 3; i++) addBox(basket, toon(0x6b7280), 0.25, 0.018, 0.028, 0, 0.05 + i * 0.055, -0.13 + i * 0.13, { cast: false });
-  // 挡泥板
-  const f1 = new THREE.Mesh(new THREE.TorusGeometry(0.35, 0.017, 4, 14, Math.PI * 0.7), toon(0x454f5a));
-  f1.position.set(-0.5, 0.33, 0);
-  f1.rotation.z = Math.PI * 0.15;
-  g.add(f1);
-  const f2 = f1.clone();
-  f2.position.set(0.5, 0.33, 0);
-  f2.rotation.z = -Math.PI * 0.4;
-  g.add(f2);
-  strut(g, toon(0x6b7280), [-0.36, 0.33, 0], [-0.44, 0.0, 0.15], 0.023, true);
-
-  // 按真实最低点落地：量一次包围盒，把整组抬到轮胎正好压住 y。
-  // 再加 1.2cm 的离地间隙 —— 轮胎和地砖完全相切时，描边 + 抗锯齿会把
-  // 最下面一截"吃"进地面，看起来像陷进去了。微缩比例下这个间隙几乎看不见。
-  g.updateMatrixWorld(true);
-  const box = new THREE.Box3().setFromObject(g);
-  if (Number.isFinite(box.min.y)) {
-    g.position.y += y - box.min.y + 0.012;
-  }
-  return g;
 }
 
 /** 店铺正面的空调外机（挂在侧墙上，从街上可见） */
