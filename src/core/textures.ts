@@ -580,11 +580,11 @@ export function chipBagTex(variant: number): THREE.Texture {
     ctx.textAlign = 'center';
     ctx.fillStyle = 'rgba(0,0,0,0.25)';
     ctx.font = `900 43px ${JP}`;
-    ctx.fillText('POTATO', W / 2 + 2, 118 + 2);
+    ctx.fillText('ポテト', W / 2 + 2, 118 + 2);
     ctx.fillStyle = '#ffffff';
-    ctx.fillText('POTATO', W / 2, 118);
+    ctx.fillText('ポテト', W / 2, 118);
     ctx.font = `900 38px ${JP}`;
-    ctx.fillText('CHIPS', W / 2, 156);
+    ctx.fillText('チップス', W / 2, 156);
 
     // 口味条
     ctx.fillStyle = f.accent;
@@ -629,10 +629,10 @@ export function chipBagTex(variant: number): THREE.Texture {
 }
 
 const SNACK_BOXES = [
-  { bg: '#4a2a1e', dark: '#26130d', accent: '#f2c14e', name: 'CHOCO', sub: 'BITTER', shape: 'square' },
-  { bg: '#f1e6cf', dark: '#8a7252', accent: '#2f6bd8', name: 'COOKIE', sub: 'BUTTER', shape: 'circle' },
-  { bg: '#cfe9df', dark: '#2c6b57', accent: '#2f8f6a', name: 'GUM', sub: 'MINT', shape: 'pellet' },
-  { bg: '#f4c6d8', dark: '#8f2c54', accent: '#d02f6f', name: 'CANDY', sub: 'STRAWBERRY', shape: 'bean' },
+  { bg: '#4a2a1e', dark: '#26130d', accent: '#f2c14e', name: 'チョコレート', sub: 'MILK CHOCOLATE', shape: 'square' },
+  { bg: '#f1e6cf', dark: '#8a7252', accent: '#2f6bd8', name: 'ビスケット', sub: 'BUTTER BISCUITS', shape: 'circle' },
+  { bg: '#cfe9df', dark: '#2c6b57', accent: '#2f8f6a', name: '抹茶ラング', sub: 'MATCHA COOKIE', shape: 'circle' },
+  { bg: '#f4c6d8', dark: '#8f2c54', accent: '#d02f6f', name: 'いちごグミ', sub: 'FRUIT GUMMY', shape: 'bean' },
 ];
 
 export function snackBoxTex(variant: number): THREE.Texture {
@@ -719,9 +719,9 @@ export function snackBoxTex(variant: number): THREE.Texture {
 }
 
 const CAN_FLAVORS = [
-  { bg: '#1f2a44', label: '#e0b45a', name: 'COFFEE', sub: 'BLACK' },
-  { bg: '#b92f28', label: '#ffe0a6', name: 'SODA', sub: 'CIDER' },
-  { bg: '#2f7b58', label: '#e7f5d8', name: 'TEA', sub: 'GREEN' },
+  { bg: '#1f2a44', label: '#e0b45a', name: '珈琲', sub: 'BLACK COFFEE' },
+  { bg: '#b92f28', label: '#ffe0a6', name: 'サイダー', sub: 'SPARKLING' },
+  { bg: '#2f7b58', label: '#e7f5d8', name: '緑茶', sub: 'GREEN TEA' },
 ];
 
 export function canLabelTex(variant: number): THREE.Texture {
@@ -760,9 +760,9 @@ export function canLabelTex(variant: number): THREE.Texture {
 }
 
 const BOTTLE_FLAVORS = [
-  { body: '#dcecf4', cap: '#2f6bd8', band: '#f7fbff', ink: '#1c3a5c', name: 'WATER', sub: 'MINERAL' },
-  { body: '#e6efd8', cap: '#3c7a3c', band: '#f8fbef', ink: '#24502a', name: 'TEA', sub: 'GREEN' },
-  { body: '#f2f0e8', cap: '#2f6bd8', band: '#ffffff', ink: '#26384e', name: 'MILK', sub: 'RICH' },
+  { body: '#dcecf4', cap: '#2f6bd8', band: '#f7fbff', ink: '#1c3a5c', name: '天然水', sub: 'MINERAL WATER' },
+  { body: '#e6efd8', cap: '#3c7a3c', band: '#f8fbef', ink: '#24502a', name: '緑茶', sub: 'GREEN TEA' },
+  { body: '#f2f0e8', cap: '#2f6bd8', band: '#ffffff', ink: '#26384e', name: 'ミルクティー', sub: 'MILK TEA' },
 ];
 
 export function bottleLabelTex(variant: number): THREE.Texture {
@@ -810,6 +810,7 @@ export function bottleLabelTex(variant: number): THREE.Texture {
 const CUP_FLAVORS = [
   { body: '#f4e9d6', band: '#c9352c', ink: '#8f1f16', name: 'CUP NOODLE', sub: 'しょうゆ' },
   { body: '#e8f0f4', band: '#2f6bd8', ink: '#1c3a7c', name: 'SEAFOOD', sub: 'シーフード' },
+  { body: '#fff0ce', band: '#a85822', ink: '#713a17', name: 'CURRY', sub: 'カレー' },
 ];
 
 export function cupNoodleTex(variant: number): THREE.Texture {
@@ -1531,6 +1532,43 @@ export function storeRoofTex(): THREE.Texture {
     const [c, ctx] = mk(S, S);
     ctx.fillStyle = '#4a505c';
     ctx.fillRect(0, 0, S, S);
+    return finish(c);
+  });
+}
+
+/** Labels for the chilled food and bakery shelves; fictional store branding. */
+export function freshFoodTex(kind: 'onigiri' | 'bento' | 'sandwich' | 'bread' | 'carton', variant: number): THREE.Texture {
+  return cached(`fresh-food:${kind}:${variant}`, () => {
+    const [c, ctx] = mk(256, 384);
+    const names = {
+      onigiri: ['紅しゃけ', 'ツナマヨ', '昆布'],
+      bento: ['のり弁当', '唐揚げ弁当', '焼鮭弁当'],
+      sandwich: ['たまごサンド', 'ハムレタス', 'ミックスサンド'],
+      bread: ['メロンパン', 'あんぱん', 'クリームパン'],
+      carton: ['北海道牛乳', 'いちごミルク', 'カフェオレ'],
+    };
+    const colors = ['#28774d', '#ce604b', '#ad822e'];
+    ctx.fillStyle = kind === 'carton' ? ['#e8f2ff', '#ffe0e6', '#e4c7a5'][variant] : '#fff8e5';
+    ctx.fillRect(0, 0, 256, 384);
+    ctx.fillStyle = colors[variant];
+    ctx.fillRect(0, 0, 256, 62);
+    ctx.fillRect(0, 280, 256, 10);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `800 19px ${JP}`;
+    ctx.fillText('HOSHINO SELECT', 128, 39);
+    ctx.fillStyle = '#30362f';
+    ctx.font = `900 31px ${JP}`;
+    ctx.fillText(names[kind][variant], 128, 130, 242);
+    ctx.font = `600 17px ${JP}`;
+    ctx.fillText(kind === 'carton' ? '生乳使用 • 200ml' : '毎日、おいしい。', 128, 174);
+    ctx.fillStyle = colors[variant];
+    ctx.font = `800 27px ${JP}`;
+    ctx.fillText(kind === 'carton' ? '要冷蔵 10℃以下' : 'こだわり仕立て', 128, 226, 240);
+    ctx.fillStyle = '#30362f';
+    ctx.font = `600 16px ${JP}`;
+    ctx.fillText(kind === 'bread' ? '製造所固有記号 / 1個入' : 'お早めにお召し上がりください', 128, 320, 242);
+    barcode(ctx, 66, 334, 124, 34, 890 + variant);
     return finish(c);
   });
 }

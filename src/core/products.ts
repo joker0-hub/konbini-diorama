@@ -5,15 +5,15 @@
  * 但逐个 Mesh 会直接把 draw call 顶到几千。
  *
  * 做法：按「薯片 / 盒装零食 / 罐装 / 瓶装 / 杯面」分族，
- * 每族用一个 InstancedMesh + 几张 Canvas 包装贴图（变体）。
- * 整店几百件商品只占 ~20 个 draw call，但近看每一件都有品牌、口味、
+ * 每族按包装变体实例化主体与细节，食品用独立几何表现米饭、配菜和夹层。
+ * 整店几百件商品共用少量批次，近看每一件都有品牌、口味、
  * 净含量和条码，而不是一排纯色方块。
  */
 
 import * as THREE from 'three';
-import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { toon, RAMP_INDOOR } from './materials';
 import * as TX from './textures';
+import { productGeometry, productDetails } from './shelf-product-geometry';
 
 export interface ProductSpec {
   x: number;
@@ -29,7 +29,7 @@ export interface ProductSpec {
   tex?: number;
 }
 
-export type ProductKind = 'box' | 'chips' | 'can' | 'bottle' | 'cup';
+export type ProductKind = 'box' | 'chips' | 'can' | 'bottle' | 'cup' | 'onigiri' | 'bento' | 'sandwich' | 'bread' | 'carton';
 
 /** 每个商品族的包装贴图。商店里同一排会有不同口味，靠 tex 变体区分。 */
 const TEX: Record<ProductKind, THREE.Texture[]> = {
@@ -38,6 +38,11 @@ const TEX: Record<ProductKind, THREE.Texture[]> = {
   can: [0, 1, 2].map((i) => TX.canLabelTex(i)),
   bottle: [0, 1, 2].map((i) => TX.bottleLabelTex(i)),
   cup: [0, 1, 2].map((i) => TX.cupNoodleTex(i)),
+  onigiri: [0, 1, 2].map((i) => TX.freshFoodTex('onigiri', i)),
+  bento: [0, 1, 2].map((i) => TX.freshFoodTex('bento', i)),
+  sandwich: [0, 1, 2].map((i) => TX.freshFoodTex('sandwich', i)),
+  bread: [0, 1, 2].map((i) => TX.freshFoodTex('bread', i)),
+  carton: [0, 1, 2].map((i) => TX.freshFoodTex('carton', i)),
 };
 
 let seedState = 20261023;
@@ -49,6 +54,7 @@ function rand(): number {
 export class ProductField {
   private lists: Record<ProductKind, ProductSpec[]> = {
     box: [], chips: [], can: [], bottle: [], cup: [],
+    onigiri: [], bento: [], sandwich: [], bread: [], carton: [],
   };
 
   add(kind: ProductKind, spec: ProductSpec): void {
@@ -133,18 +139,9 @@ export class ProductField {
   }
 
   build(parent: THREE.Object3D, opts: { cast?: boolean } = {}): void {
-    // 盒装/袋装用圆角盒：薯片袋的鼓包、零食盒的倒角都能读出来
-    const boxGeo = new RoundedBoxGeometry(1, 1, 1, 2, 0.06);
-    const chipGeo = new RoundedBoxGeometry(1, 1, 1, 2, 0.18);
-    const canGeo = new THREE.CylinderGeometry(0.5, 0.5, 1, 14);
-    const bottleGeo = new THREE.CylinderGeometry(0.36, 0.5, 1, 12);
-    const cupGeo = new THREE.CylinderGeometry(0.5, 0.38, 1, 14);
-
-    this.buildFamily(parent, this.lists.box, 'box', boxGeo, opts);
-    this.buildFamily(parent, this.lists.chips, 'chips', chipGeo, opts);
-    this.buildFamily(parent, this.lists.can, 'can', canGeo, opts);
-    this.buildFamily(parent, this.lists.bottle, 'bottle', bottleGeo, opts);
-    this.buildFamily(parent, this.lists.cup, 'cup', cupGeo, opts);
+    for (const kind of Object.keys(this.lists) as ProductKind[]) {
+      this.buildFamily(parent, this.lists[kind], kind, productGeometry(kind), opts);
+    }
   }
 
   private buildFamily(
@@ -156,6 +153,9 @@ export class ProductField {
   ): void {
     if (!list.length) return;
     const textures = TEX[kind];
+    if (kind === 'bottle' || kind === 'can' || kind === 'cup') {
+      for (const texture of textures) texture.wrapS = THREE.RepeatWrapping;
+    }
     const groups = new Map<number, ProductSpec[]>();
     for (const p of list) {
       const t = ((p.tex ?? 0) % textures.length + textures.length) % textures.length;
@@ -191,6 +191,18 @@ export class ProductField {
       });
       mesh.instanceMatrix.needsUpdate = true;
       parent.add(mesh);
+      // Shared instanced details keep the denser models inexpensive to draw.
+      const detailGeo = productDetails(kind, tex);
+      if (detailGeo) {
+        const detail = new THREE.InstancedMesh(detailGeo, toon(0xffffff, {
+          ramp: RAMP_INDOOR, vertexColors: true,
+        }), items.length);
+        detail.name = `product-details-${kind}-${tex}`;
+        detail.instanceMatrix.copy(mesh.instanceMatrix);
+        detail.castShadow = opts.cast ?? false;
+        detail.receiveShadow = true;
+        parent.add(detail);
+      }
     }
   }
 }

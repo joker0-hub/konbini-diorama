@@ -122,10 +122,11 @@ export function buildInterior(root: THREE.Object3D, ctx: SceneCtx): void {
     }
     const perRow = Math.floor((cX1 - cX0 - 0.22) / 0.1);
     for (let r = 0; r < 5; r++) {
-      // 最底层放一排罐装饮料，上面四层是瓶装；罐/瓶各有自己的标签包装。
-      const kind: ProductKind = r === 0 ? 'can' : 'bottle';
+      // 底层罐装饮料、中间瓶装茶饮与水、顶层纸盒乳饮。
+      const kind: ProductKind = r === 0 ? 'can' : r === 4 ? 'carton' : 'bottle';
       const dims = kind === 'can'
         ? { w: 0.075, h: 0.16, d: 0.075 }
+        : kind === 'carton' ? { w: 0.077, h: 0.17, d: 0.077 }
         : { w: 0.077, h: 0.26, d: 0.077 };
       products.row(kind, {
         x0: cX0 + 0.16, count: perRow, step: 0.1,
@@ -179,10 +180,11 @@ export function buildInterior(root: THREE.Object3D, ctx: SceneCtx): void {
     }
     for (let r = 0; r < 4; r++) {
       const n = Math.max(3, Math.floor((bx1 - bx0 - 0.2) / 0.185));
-      products.row('box', {
+      const kind: ProductKind = ['bento', 'onigiri', 'onigiri', 'sandwich'][r] as ProductKind;
+      products.row(kind, {
         x0: bx0 + 0.14, count: n, step: 0.185,
         y: FY + 0.28 + r * 0.33, z: bz + 0.14,
-        w: 0.145, h: 0.14, d: 0.125, texOffset: r * 3 + 9,
+        w: 0.145, h: kind === 'bento' ? 0.06 : 0.14, d: kind === 'bento' ? 0.21 : 0.1, texOffset: r * 3 + 9,
       });
     }
     const pop = new THREE.Mesh(planeGeo(bx1 - bx0, 0.3), decal(TX.popStripTex(), 0.96));
@@ -390,13 +392,18 @@ function buildGondola(
   for (let i = 0; i < tiers; i++) {
     const ty = y + 0.24 + i * ((h - 0.36) / tiers);
     addBox(g, white, spanX, 0.025, spanZ, midX, ty, midZ, { cast: false });
-    // 四层里两层薯片、一层杯面、一层盒装零食：货架近看有明确品类。
-    const tierKind: ProductKind = i === 1 || i === 2 ? 'chips' : i === 3 ? 'cup' : 'box';
+    // 按货架分配零食、杯面和面包，各层保持明确品类。
+    const assortment: ProductKind[] = spec.name === 'gondola-2'
+      ? ['box', 'box', 'chips', 'cup']
+      : spec.name === 'gondola-3' ? ['bread', 'bread', 'box', 'cup']
+        : ['box', 'chips', 'chips', 'cup'];
+    const tierKind = assortment[i];
     const dims = tierKind === 'chips'
       ? { w: 0.13, h: 0.19, d: 0.055 }
       : tierKind === 'cup'
         ? { w: 0.085, h: 0.14, d: 0.085 }
-        : { w: 0.08, h: 0.15, d: 0.06 };
+        : tierKind === 'bread' ? { w: 0.14, h: 0.12, d: 0.085 }
+          : { w: 0.08, h: 0.15, d: 0.06 };
     const cols = 10;
     const step = (spanZ - 0.1) / cols;
     for (const side of [-1, 1]) {
@@ -404,7 +411,7 @@ function buildGondola(
         midX + side * (spanX / 2 + 0.003), ty + 0.008, midZ, { cast: false });
       for (let c = 0; c < cols; c++) {
         for (let row = 0; row < 2; row++) {
-          const px = midX + side * (0.06 + row * 0.065);
+          const px = midX + side * (0.06 + row * (dims.d + 0.012));
           products.row(tierKind, {
             x0: px, count: 1, step: 0,
             y: ty + 0.025,
@@ -449,12 +456,12 @@ function buildLowGondola(
   for (let i = 0; i < 3; i++) {
     const ty = y + 0.24 + i * 0.25;
     addBox(g, toon(0xfbfaf4), spanX - 0.04, 0.018, spanZ - 0.02, (x0 + x1) / 2, ty, midZ, { cast: false });
-    const tierKind: ProductKind = i === 1 ? 'chips' : i === 2 ? 'cup' : 'box';
+    const tierKind: ProductKind = i === 1 ? 'chips' : i === 2 ? 'cup' : 'bread';
     const dims = tierKind === 'chips'
       ? { w: 0.13, h: 0.19, d: 0.07 }
       : tierKind === 'cup'
         ? { w: 0.085, h: 0.14, d: 0.085 }
-        : { w: 0.08, h: 0.15, d: 0.07 };
+        : { w: 0.13, h: 0.13, d: 0.075 };
     for (let row = 0; row < 2; row++) {
       products.row(tierKind, {
         x0: x0 + 0.1, count: 10, step: (x1 - x0 - 0.2) / 10,
