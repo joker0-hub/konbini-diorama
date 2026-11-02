@@ -261,7 +261,9 @@ export function buildWorld(envInit: EnvState = { time: 'day', weather: 'rain' })
   let doorProgress = 0;
 
   const update = (t: number, dt: number, cam: THREE.Camera, weatherDt = dt) => {
-    assembly.update(dt);
+    // Presentation follows elapsed time, not the physics step capped at 50 ms.
+    // Otherwise a seven-second opening takes minutes on software/slow GPUs.
+    assembly.update(weatherDt);
     environment.update(weatherDt);
     rain.update(t, dt, cam);
     stars.update(t, cam, starOpacity);

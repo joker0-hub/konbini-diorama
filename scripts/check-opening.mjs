@@ -39,7 +39,18 @@ try {
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
-  const ready = () => page.waitForFunction(() => !!window.__konbini, { timeout: 90000 });
+  const ready = async () => {
+    await page.waitForFunction(() => !!window.__konbini, { timeout: 90000 });
+    // These are timing/UI checks, not image-quality checks. Keep CI software
+    // rendering cheap without changing the production renderer or animation clock.
+    if (process.env.CI) await page.evaluate(() => {
+      const { renderer, pipeline } = window.__konbini;
+      const setPixelRatio = renderer.setPixelRatio.bind(renderer);
+      renderer.setPixelRatio = (ratio) => setPixelRatio(Math.min(ratio, 0.5));
+      renderer.setPixelRatio(0.5);
+      pipeline.setSize(innerWidth * 0.5, innerHeight * 0.5);
+    });
+  };
   const visit = async (query = '') => {
     await page.goto(new URL(query, base).href, { waitUntil: 'domcontentloaded', timeout: 90000 });
     await ready();
@@ -49,15 +60,21 @@ try {
   await sleep(7600);
   check('阅读超过组装时长，模型仍等待揭幕', await page.evaluate(() =>
     window.__konbini.world.assembly.progress === 0 && !window.__konbini.world.assembly.finished));
+  await page.evaluate(() => {
+    window.__openingSawAssembly = false;
+    const observe = () => {
+      const { progress, finished } = window.__konbini.world.assembly;
+      if (progress > 0 && progress < 1) window.__openingSawAssembly = true;
+      if (!finished) requestAnimationFrame(observe);
+    };
+    requestAnimationFrame(observe);
+  });
   await page.click('[data-act="next"]');
   check('继续显示第二段代码', !!await page.$('.intro.is-step2'));
   await page.click('[data-act="next"]');
   check('进入站点显示标题卡', !!await page.$('.intro.is-splash'));
   await page.waitForSelector('.intro', { hidden: true, timeout: 15000 });
-  await page.waitForFunction(() => {
-    const p = window.__konbini.world.assembly.progress;
-    return p > 0 && p < 1;
-  });
+  await page.waitForFunction(() => window.__openingSawAssembly);
   check('揭幕后开始播放组装', true);
   await page.waitForFunction(() => window.__konbini.world.assembly.finished, { timeout: 90000 });
   check('组装完成，重播入口可见', await page.$eval('.opening-replay', (el) => !el.hidden));
