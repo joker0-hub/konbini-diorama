@@ -72,19 +72,29 @@ void P;
  * 缺省为「白天 + 雨」—— 雨里亮着灯的便利店，是这组石膏微缩模型的主场景。
  * 加 &instant=1 可让积雪/过渡立刻到位（截图与自动化测试用）。
  */
-function readEnvFromUrl(): { time: TimeOfDay; weather: Weather; instant: boolean; intro: boolean } {
+function readEnvFromUrl(): { time: TimeOfDay; weather: Weather; instant: boolean; intro: boolean; forceIntro: boolean } {
   const q = new URLSearchParams(location.search);
   const t = q.get('time');
   const w = q.get('weather');
   const time: TimeOfDay = t === 'day' || t === 'dusk' || t === 'night' ? t : 'day';
   const weather: Weather = w === 'clear' || w === 'rain' || w === 'snow' ? w : 'rain';
-  return {
+  const options = {
     time,
     weather,
     instant: q.get('instant') === '1',
     // ?intro=0 只跳过开场字幕，不影响模型的入场组装
     intro: q.get('intro') !== '0',
+    forceIntro: q.get('intro') === '1',
   };
+  // 启动开关只消费一次：调试链接不能让刷新、热更新或再次分享一直跳过开场。
+  // 保留环境、其它查询参数和 hash，不新增浏览器历史记录。
+  if (q.has('intro') || q.has('instant')) {
+    const url = new URL(location.href);
+    url.searchParams.delete('intro');
+    url.searchParams.delete('instant');
+    history.replaceState(history.state, '', url);
+  }
+  return options;
 }
 const envInit = readEnvFromUrl();
 
@@ -185,16 +195,40 @@ window.addEventListener('beforeunload', () => unsubscribeEnvUI());
 
 /* ---------------- 代码开场动画 ---------------- */
 // 一段"正在编译这个场景"的脚本先敲出来，敲完后两扇门滑开，
-// 露出背后已经组装到一半的模型。纯代码生成，没有任何图片/视频资源。
+// 揭幕后才启动模型组装，避免用户阅读代码时动画在遮罩后提前播完。
 // ?intro=0 或 ?instant=1 时直接跳过（截图与自动化测试用）。
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const opening = createCodeOpening({
   disabled:
     !envInit.intro ||
-    envInit.instant ||
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+    (envInit.instant && !envInit.forceIntro) ||
+    (reducedMotion && !envInit.forceIntro),
   time: envInit.time,
   weather: envInit.weather,
 });
+if ((envInit.instant && !envInit.forceIntro) || reducedMotion) {
+  world.assembly.finishNow();
+} else {
+  world.assembly.update(0);
+  world.assembly.paused = opening.isRunning;
+}
+
+function replayOpening(): void {
+  const url = new URL(location.href);
+  const state = world.environment.get();
+  url.searchParams.delete('instant');
+  url.searchParams.set('intro', '1');
+  url.searchParams.set('time', state.time);
+  url.searchParams.set('weather', state.weather);
+  location.assign(url.href);
+}
+const replayButton = document.createElement('button');
+replayButton.type = 'button';
+replayButton.className = 'opening-replay';
+replayButton.textContent = '↻ 重播开场';
+replayButton.hidden = opening.isRunning;
+replayButton.addEventListener('click', replayOpening);
+document.body.appendChild(replayButton);
 
 /* ---------------- 樱花树参数面板 ---------------- */
 // 面板只通过点击樱花树打开；右上角按钮负责收起。
@@ -314,6 +348,8 @@ function frame(): void {
   const realDelta = clock.getDelta();
   const dt = Math.min(realDelta, 0.05);
   elapsed += dt;
+  world.assembly.paused = opening.isRunning;
+  replayButton.hidden = opening.isRunning;
   if (!bottleDrag.isActive() && !vendingPanel.isOpen() && !sakuraPanel.isOpen()) rig.update(dt);
   // Weather uses elapsed time even on slow GPUs; physics keeps its bounded step.
   // A suspended tab must not instantly accumulate or melt the entire scene on return.
@@ -398,7 +434,7 @@ window.__konbini = {
     rig.controls.target.set(target[0], target[1], target[2]);
     rig.controls.update();
   },
-  replay: () => location.reload(),
+  replay: replayOpening,
   spin: (on) => {
     rig.controls.autoRotate = on;
     rig.controls.autoRotateSpeed = 0.5;
