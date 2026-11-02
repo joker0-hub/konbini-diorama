@@ -15,6 +15,7 @@
     "shots": "node scripts/shoot.mjs",
     "verify": "node scripts/verify.mjs",
     "check:ui": "node scripts/check-ui.mjs",
+    "check:opening": "node scripts/check-opening.mjs",
     "check:interaction": "node scripts/check-interaction-focus.mjs",
     "check:env": "node scripts/check-env.mjs",
     "check:snow": "node scripts/check-snow.mjs",

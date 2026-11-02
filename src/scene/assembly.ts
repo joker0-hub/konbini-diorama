@@ -73,6 +73,8 @@ export class Assembly {
   private duration = 7.0;
   private started = false;
   finished = false;
+  /** 阅读开场时冻结组装进度，揭幕后再开始。 */
+  paused = false;
   onDone: (() => void) | null = null;
   /** 全局进度 0..1 */
   progress = 0;
@@ -144,7 +146,7 @@ export class Assembly {
   }
 
   update(dt: number): void {
-    if (this.finished) return;
+    if (this.finished || this.paused) return;
     this.started = true;
     this.elapsed += dt;
     const p = THREE.MathUtils.clamp(this.elapsed / this.duration, 0, 1);

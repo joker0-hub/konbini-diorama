@@ -20,6 +20,25 @@ body {
   cursor: grabbing;
 }
 
+.opening-replay {
+  position: fixed;
+  top: max(16px, env(safe-area-inset-top));
+  right: max(16px, env(safe-area-inset-right));
+  z-index: 15;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid rgba(202, 220, 241, 0.25);
+  border-radius: 22px;
+  background: rgba(13, 20, 32, 0.88);
+  color: #d6deeb;
+  font: 12px system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.opening-replay[hidden] { display: none; }
+.opening-replay:hover { background: #26354a; }
+.opening-replay:focus-visible { outline: 2px solid #b8d8ff; outline-offset: 3px; }
+
 /* Sakura shares the centered dialog shell with the vending purchase panel. */
 .interaction-panel.sakura-panel {
   --vending-accent: #ffc0d6;
