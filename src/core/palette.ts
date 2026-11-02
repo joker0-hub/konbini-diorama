@@ -23,7 +23,7 @@ export const P = {
   sidewalk: 0x585e6b,
   sidewalkLine: 0x3c424e,
   gutter: 0x353b47,
-  tactile: 0xd9c04a,
+  tactile: 0xc9a643,
 
   /* 便利店建筑 */
   storeWall: 0xdfe0dc,

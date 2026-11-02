@@ -7,7 +7,7 @@
 
 import * as THREE from 'three';
 import { P } from '../core/palette';
-import { addBox, addTiled, group, noOutline, uvPlaneGeo } from '../core/geom';
+import { addBox, addCyl, addTiled, group, noOutline, uvPlaneGeo } from '../core/geom';
 import { additiveClone, decal, toon, RAMP_SMOOTH } from '../core/materials';
 import * as TX from '../core/textures';
 import { L } from './layout';
@@ -71,9 +71,9 @@ export function buildBase(root: THREE.Object3D, ctx: SceneCtx): THREE.Group {
     new THREE.Vector2(-H, H),
     new THREE.Vector2(L.walk.xOuter, H),
     new THREE.Vector2(L.walk.xOuter, -L.walk.zOuter),
-    new THREE.Vector2(H, -L.walk.zOuter),
-    new THREE.Vector2(H, -H),
-    new THREE.Vector2(-H, -H),
+    // Everything beyond zOuter is roadway. The old polygon extended to z=8,
+    // hiding the asphalt/snow and visually burying bottles resting on the road.
+    new THREE.Vector2(-H, -L.walk.zOuter),
   ]);
   const walkGeo = new THREE.ExtrudeGeometry(shape, { depth: L.curb, bevelEnabled: false, curveSegments: 1 });
   walkGeo.rotateX(-Math.PI / 2);
@@ -101,6 +101,13 @@ export function buildBase(root: THREE.Object3D, ctx: SceneCtx): THREE.Group {
   const curb = toon(P.curb);
   addBox(g, curb, L.walk.xOuter + H + 0.2, 0.07, 0.2, (L.walk.xOuter - H) / 2, L.curb - 0.04, L.walk.zOuter - 0.1);
   addBox(g, curb, 0.2, 0.07, L.walk.zOuter + H + 0.2, L.walk.xOuter - 0.1, L.curb - 0.04, (L.walk.zOuter - H) / 2);
+  const curbJoint = toon(0x777d83);
+  for (let x = -H + 0.6; x < L.walk.xOuter - 0.2; x += 0.75) {
+    addBox(g, curbJoint, 0.009, 0.002, 0.19, x, L.curb + 0.031, L.walk.zOuter - 0.1, { cast: false });
+  }
+  for (let z = -H + 0.6; z < L.walk.zOuter - 0.2; z += 0.75) {
+    addBox(g, curbJoint, 0.19, 0.002, 0.009, L.walk.xOuter - 0.1, L.curb + 0.031, z, { cast: false });
+  }
   {
     const c = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.07, 14, 1, false, 0, Math.PI / 2), curb);
     c.position.set(L.walk.xOuter - 0.1, L.curb, L.walk.zOuter - 0.1);
@@ -118,8 +125,9 @@ export function buildBase(root: THREE.Object3D, ctx: SceneCtx): THREE.Group {
   const mkGrate = (x: number, z: number, ry = 0) => {
     const gg = group(g, x, 0, z);
     gg.rotation.y = ry;
-    addBox(gg, grateMat, 0.66, 0.06, 0.42, 0, 0.004, 0);
-    for (let i = 0; i < 7; i++) addBox(gg, grateBar, 0.54, 0.055, 0.026, 0, 0.058, -0.16 + i * 0.053);
+    addBox(gg, grateMat, 0.66, 0.018, 0.42, 0, 0.005, 0, { r: 0.006 });
+    for (let i = 0; i < 7; i++) addBox(gg, grateBar, 0.54, 0.003, 0.026, 0, 0.023, -0.16 + i * 0.053, { cast: false });
+    for (const sx of [-1, 1]) addBox(gg, grateMat, 0.015, 0.005, 0.35, sx * 0.20, 0.025, 0, { cast: false });
   };
   mkGrate(-5.4, L.road.z + 0.3);
   mkGrate(-1.6, L.road.z + 0.3);
@@ -198,21 +206,43 @@ export function buildBase(root: THREE.Object3D, ctx: SceneCtx): THREE.Group {
    * 盲道紧贴路缘石会被误读成"路面标线"，而这正是它之前看起来像黄线的原因。
    */
   const tactile = toon(P.tactile);
+  const tactileRib = toon(0xe2bd59);
+  const tactileJoint = toon(0x9e873e);
+  const tactileStrip = (length: number, x: number, z: number, rotation = 0): void => {
+    const strip = group(g, x, L.curb, z, 'tactile-paving');
+    strip.rotation.y = rotation;
+    addBox(strip, tactile, length, 0.009, 0.3, 0, 0, 0, { cast: false });
+    for (let i = -1.5; i <= 1.5; i++) {
+      addBox(strip, tactileRib, length - 0.016, 0.006, 0.023, 0, 0.009, i * 0.062, { r: 0.003, cast: false });
+    }
+    for (let pos = -length / 2 + 0.3; pos < length / 2 - 0.03; pos += 0.3) {
+      addBox(strip, tactileJoint, 0.006, 0.001, 0.292, pos, 0.009, 0, { cast: false });
+    }
+  };
   const TACTILE_INSET = 0.15;
   // 横向：沿店面前沿走，从台座左缘到右侧人行道内边
   {
     const x0 = -H + 0.1;
     const x1 = L.walk.xOuter - TACTILE_INSET;
-    addBox(g, tactile, x1 - x0, 0.014, 0.3, (x0 + x1) / 2, L.curb - 0.007, L.walk.zInner + 0.55);
+    tactileStrip(x1 - x0, (x0 + x1) / 2, L.walk.zInner + 0.55);
   }
   // 纵向：沿侧街走，从前侧路缘石内侧收口到后侧
   {
     const z0 = -6.8;
     const z1 = L.walk.zOuter - TACTILE_INSET;
-    addBox(g, tactile, 0.3, 0.014, z1 - z0, L.walk.xInner + 0.55, L.curb - 0.007, (z0 + z1) / 2);
+    // Stop at the junction tile so the two sets of ribs never overlap.
+    const junctionZ = L.walk.zInner + 0.55;
+    tactileStrip(junctionZ - 0.15 - z0, L.walk.xInner + 0.55, (junctionZ - 0.15 + z0) / 2, Math.PI / 2);
+    tactileStrip(z1 - junctionZ - 0.15, L.walk.xInner + 0.55, (z1 + junctionZ + 0.15) / 2, Math.PI / 2);
   }
 
   /* ---------------- 湿地反光 ---------------- */
+  const junctionX = L.walk.xInner + 0.55, junctionZ = L.walk.zInner + 0.55;
+  addBox(g, tactile, 0.3, 0.008, 0.3, junctionX, L.curb + 0.016, junctionZ, { cast: false });
+  for (let ix = 0; ix < 4; ix++) for (let iz = 0; iz < 4; iz++) {
+    addCyl(g, tactileRib, 0.013, 0.016, 0.006, junctionX - 0.105 + ix * 0.07,
+      L.curb + 0.024, junctionZ - 0.105 + iz * 0.07, { seg: 8, cast: false });
+  }
   // 关键：路面 y≈0，人行道面 y=curb（0.14）。
   // 反光片必须分别贴在这两个高度上 —— 统一放在 0.024 会整个沉到人行道下面，
   // 于是玻璃里透出的暖光在地上完全没有倒影，画面就会显得"干"。

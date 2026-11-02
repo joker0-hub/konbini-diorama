@@ -7,6 +7,11 @@ export interface CameraRig {
   camera: THREE.PerspectiveCamera;
   controls: OrbitControls;
   update: (dt: number) => void;
+  focus: (object: THREE.Object3D, onArrival: () => void) => void;
+  cancelFocus: () => void;
+  isFocusing: () => boolean;
+  getMode: () => 'orbit' | 'first-person';
+  setMode: (mode: 'orbit' | 'first-person') => void;
 }
 
 export function createCameraRig(canvas: HTMLCanvasElement): CameraRig {
@@ -57,11 +62,84 @@ export function createCameraRig(canvas: HTMLCanvasElement): CameraRig {
 
   controls.update();
 
+  let mode: 'orbit' | 'first-person' = 'orbit';
+  let flight: {
+    from: THREE.Vector3; to: THREE.Vector3;
+    fromTarget: THREE.Vector3; target: THREE.Vector3;
+    elapsed: number; duration: number; enabled: boolean;
+    onArrival: () => void;
+  } | null = null;
+  const cancelFocus = (): void => {
+    if (!flight) return;
+    controls.enabled = flight.enabled;
+    flight = null;
+  };
+
   return {
     camera,
     controls,
-    update() {
+    getMode: () => mode,
+    setMode(next) {
+      cancelFocus();
+      mode = next;
+      controls.enabled = next === 'orbit';
+    },
+    cancelFocus,
+    isFocusing: () => flight !== null,
+    focus(object, onArrival) {
+      cancelFocus();
+      // Pointer lock also covers first-person controllers added outside this rig.
+      if (mode === 'first-person' || document.pointerLockElement === canvas) {
+        onArrival();
+        return;
+      }
+      object.updateWorldMatrix(true, true);
+      const bounds = new THREE.Box3().setFromObject(object);
+      if (bounds.isEmpty()) { onArrival(); return; }
+      const target = bounds.getCenter(new THREE.Vector3());
+      const size = bounds.getSize(new THREE.Vector3());
+      const direction = camera.position.clone().sub(target);
+      const previousDistance = direction.length();
+      if (previousDistance < 0.001) direction.set(0, 0.4, 1);
+      direction.normalize();
+      // Keep the approach on the clicked side; account for narrow mobile viewports.
+      const halfFov = THREE.MathUtils.degToRad(camera.fov / 2);
+      const fit = Math.max(size.y, Math.max(size.x, size.z) / camera.aspect) /
+        (2 * Math.tan(halfFov)) * 1.15;
+      const distance = Math.max(2, Math.min(previousDistance, fit));
+      controls.minDistance = Math.min(controls.minDistance, distance, 2);
+      // Flush orbit inertia before taking over the camera.
+      const damping = controls.enableDamping;
+      const rotate = controls.autoRotate;
+      controls.enableDamping = false;
+      controls.autoRotate = false;
       controls.update();
+      controls.enableDamping = damping;
+      controls.autoRotate = rotate;
+      flight = {
+        from: camera.position.clone(), to: target.clone().addScaledVector(direction, distance),
+        fromTarget: controls.target.clone(), target, elapsed: 0,
+        duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 0.85,
+        enabled: controls.enabled, onArrival,
+      };
+      controls.enabled = false;
+    },
+    update(dt) {
+      if (flight) {
+        const current = flight;
+        current.elapsed += dt;
+        const t = current.duration ? Math.min(1, current.elapsed / current.duration) : 1;
+        const eased = t * t * t * (t * (t * 6 - 15) + 10);
+        camera.position.lerpVectors(current.from, current.to, eased);
+        controls.target.lerpVectors(current.fromTarget, current.target, eased);
+        camera.lookAt(controls.target);
+        if (t === 1) {
+          cancelFocus();
+          current.onArrival();
+        }
+      } else if (mode === 'orbit' && controls.enabled && document.pointerLockElement !== canvas) {
+        controls.update();
+      }
     },
   };
 }

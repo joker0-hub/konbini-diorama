@@ -1,4 +1,5 @@
 import type { SakuraParameters } from '../scene/sakura';
+import './vending-panel.css';
 
 interface ParameterControl {
   key: keyof SakuraParameters;
@@ -34,24 +35,23 @@ export function createSakuraPanel(
   host: HTMLElement,
   onChange: (patch: Partial<SakuraParameters>) => void,
 ): SakuraPanel {
-  const panel = document.createElement('aside');
-  panel.className = 'sakura-panel';
+  const panel = document.createElement('dialog');
+  panel.className = 'sakura-panel interaction-panel';
   panel.setAttribute('aria-label', '樱花树环境参数控制');
   panel.setAttribute('aria-hidden', 'true');
   panel.hidden = true;
 
   const header = document.createElement('header');
-  header.className = 'sakura-panel__header';
+  header.className = 'interaction-panel__header';
   const title = document.createElement('div');
-  title.className = 'sakura-panel__title';
-  title.innerHTML = '<span class="sakura-panel__dot" aria-hidden="true"></span><span>环境参数控制</span>';
+  title.innerHTML = '<span class="interaction-panel__eyebrow">HOSHINO · SAKURA</span><h2>樱花树环境参数</h2>';
 
   const close = document.createElement('button');
-  close.className = 'sakura-panel__close';
+  close.className = 'sakura-panel__close interaction-panel__close';
   close.type = 'button';
   close.setAttribute('aria-label', '收起参数面板');
-  close.title = '收起';
-  close.innerHTML = '<span>收起</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>';
+  close.title = '关闭（Esc）';
+  close.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>';
 
   const controls = document.createElement('div');
   controls.className = 'sakura-panel__controls';
@@ -88,14 +88,30 @@ export function createSakuraPanel(
   }
 
   header.append(title, close);
-  panel.append(header, controls);
+  const hint = document.createElement('p');
+  hint.className = 'interaction-panel__hint';
+  hint.textContent = '调整花簇与落樱，让街角呈现喜欢的模样';
+  panel.append(header, hint, controls);
   host.append(panel);
 
   let open = false;
+  let returnFocus: HTMLElement | null = null;
+  let outsideStart = false;
   const setOpen = (next: boolean): void => {
+    if (open === next) return;
     open = next;
     panel.hidden = !open;
     panel.setAttribute('aria-hidden', open ? 'false' : 'true');
+    outsideStart = false;
+    if (open) {
+      returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      panel.showModal();
+      close.focus({ preventScroll: true });
+    } else {
+      panel.close();
+      if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+      returnFocus = null;
+    }
   };
   close.addEventListener('click', (event) => {
     event.stopPropagation();
@@ -103,14 +119,32 @@ export function createSakuraPanel(
   });
 
   const stop = (event: Event): void => event.stopPropagation();
-  panel.addEventListener('pointerdown', stop);
-  panel.addEventListener('pointerup', stop);
-  panel.addEventListener('pointercancel', stop);
+  const isOutside = (event: PointerEvent): boolean => {
+    const rect = panel.getBoundingClientRect();
+    return event.clientX < rect.left || event.clientX > rect.right ||
+      event.clientY < rect.top || event.clientY > rect.bottom;
+  };
+  panel.addEventListener('pointerdown', (event) => {
+    stop(event);
+    outsideStart = event.target === panel && isOutside(event);
+  });
+  panel.addEventListener('pointerup', (event) => {
+    stop(event);
+    if (outsideStart && event.target === panel && isOutside(event)) setOpen(false);
+    outsideStart = false;
+  });
+  panel.addEventListener('pointercancel', (event) => { stop(event); outsideStart = false; });
+  panel.addEventListener('cancel', (event) => { event.preventDefault(); setOpen(false); });
+  panel.addEventListener('keydown', (event) => {
+    stop(event);
+    if (event.key === 'Escape') { event.preventDefault(); setOpen(false); }
+  });
+  panel.addEventListener('keyup', stop);
   panel.addEventListener('wheel', stop, { passive: true });
 
   return {
     setOpen,
     isOpen: () => open,
-    destroy: () => panel.remove(),
+    destroy: () => { setOpen(false); panel.remove(); },
   };
 }

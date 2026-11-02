@@ -83,6 +83,7 @@ const THEME_COLOR: Record<TimeOfDay, string> = {
 
 export interface EnvUI {
   setState: (s: EnvState) => void;
+  setSnowFeedback: (snow: number, weather: Weather, meltwater: number) => void;
   destroy: () => void;
 }
 
@@ -170,6 +171,20 @@ export function createEnvUI(
   weatherSection.append(weatherLabel, weatherGroup);
   root.append(brand, timeSection, divider, weatherSection, hint, live);
   host.appendChild(root);
+
+  const snowFeedback = document.createElement('div');
+  snowFeedback.className = 'envbar__snow-feedback';
+  snowFeedback.hidden = true;
+  const snowLabel = document.createElement('span');
+  const snowMeter = document.createElement('span');
+  snowMeter.className = 'envbar__snow-meter';
+  snowMeter.setAttribute('role', 'progressbar');
+  snowMeter.setAttribute('aria-label', '积雪程度');
+  snowMeter.setAttribute('aria-valuemin', '0');
+  snowMeter.setAttribute('aria-valuemax', '100');
+  snowFeedback.append(snowLabel, snowMeter);
+  root.append(snowFeedback);
+  let lastSnowFeedback = '';
 
   let last: EnvState = getState();
 
@@ -284,6 +299,18 @@ export function createEnvUI(
 
   return {
     setState,
+    setSnowFeedback(snow, weather, meltwater) {
+      const percent = Math.round(snow * 100);
+      const label = weather === 'snow' ? (percent >= 100 ? '薄雪已积满' : `正在积雪 · ${percent}%`)
+        : snow > 0.001 ? `积雪融化中 · ${percent}%` : meltwater > 0.18 ? '融雪后地面湿润' : '';
+      if (label === lastSnowFeedback) return;
+      lastSnowFeedback = label;
+      snowFeedback.hidden = !label;
+      snowLabel.textContent = label;
+      snowMeter.hidden = !snow && weather !== 'snow';
+      snowMeter.setAttribute('aria-valuenow', String(percent));
+      snowMeter.style.setProperty('--snow-progress', `${percent}%`);
+    },
     destroy() {
       window.removeEventListener('keydown', onKey);
       root.remove();

@@ -53,7 +53,7 @@ check('只保留四个指定参数', JSON.stringify(initial.labels) === JSON.str
 check('底部环境条存在（3 时段 + 3 天气）', initial.otherPanel && initial.envbarButtons === 6, `buttons=${initial.envbarButtons}`);
 
 await page.mouse.click(initial.point.x, initial.point.y);
-await new Promise((resolve) => setTimeout(resolve, 250));
+await page.waitForSelector('.sakura-panel[open]', { timeout: 10000 });
 const opened = await page.evaluate(() => document.querySelector('.sakura-panel')?.hidden === false);
 check('点击樱花树打开面板', opened);
 await page.evaluate(() => {
@@ -78,6 +78,7 @@ await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true
 const mobilePanel = await page.evaluate(() => {
   const panel = document.querySelector('.sakura-panel');
   panel.hidden = false;
+  panel.showModal();
   const rect = panel.getBoundingClientRect();
   return { fits: rect.left >= 0 && rect.right <= innerWidth && rect.top >= 0 && rect.bottom <= innerHeight };
 });

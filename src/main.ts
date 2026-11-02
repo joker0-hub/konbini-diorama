@@ -207,8 +207,21 @@ const vendingPanel = createVendingPanel(document.body, (machine, drink) => {
 const bottleDrag = createBottleDrag({
   canvas, camera, controls: rig.controls, worldRoot: world.root,
   machines: world.street.vending, recyclingBins: world.street.recyclingBins,
-  canInteract: () => world.assembly.finished && !vendingPanel.isOpen() && !document.querySelector('.intro'),
+  canInteract: () => canInteract(),
 });
+// Register future clickable objects here: every activation shares the same camera approach.
+const interactions = [
+  ...world.street.vending.map((machine) => ({
+    pickRoot: machine.pickRoot,
+    open: () => vendingPanel.open(machine),
+    checkOcclusion: true,
+  })),
+  { pickRoot: world.street.sakura.pickRoot, open: () => sakuraPanel.setOpen(true), checkOcclusion: false },
+];
+function canInteract(): boolean {
+  return world.assembly.finished && !rig.isFocusing() && !vendingPanel.isOpen() &&
+    !sakuraPanel.isOpen() && !document.querySelector('.intro');
+}
 const sakuraRaycaster = new THREE.Raycaster();
 const sakuraPointer = new THREE.Vector2();
 const activePointers = new Set<number>();
@@ -231,6 +244,7 @@ function isPurchaseBlocker(hit: THREE.Intersection): boolean {
 }
 
 canvas.addEventListener('pointerdown', (event) => {
+  if (!canInteract()) return;
   activePointers.add(event.pointerId);
   sakuraPointerStart = event.button === 0 && event.isPrimary && activePointers.size === 1
     ? { x: event.clientX, y: event.clientY, id: event.pointerId, dragged: false }
@@ -246,6 +260,7 @@ canvas.addEventListener('pointerup', (event) => {
   activePointers.delete(event.pointerId);
   const start = sakuraPointerStart;
   sakuraPointerStart = null;
+  if (!canInteract()) return;
   if (!start || start.id !== event.pointerId || start.dragged ||
       Math.hypot(event.clientX - start.x, event.clientY - start.y) > 7) return;
 
@@ -256,34 +271,34 @@ canvas.addEventListener('pointerup', (event) => {
     -((event.clientY - rect.top) / rect.height) * 2 + 1,
   );
   sakuraRaycaster.setFromCamera(sakuraPointer, camera);
-  if (world.assembly.finished && !vendingPanel.isOpen()) {
-    const machines = world.street.vending;
-    const hits = sakuraRaycaster.intersectObjects(machines.map((machine) => machine.pickRoot), true);
-    const hit = hits.find((candidate) => isWorldVisible(candidate.object));
-    if (hit) {
-      const machine = machines.find((candidate) => candidate.pickRoot === hit.object ||
-        candidate.pickRoot.getObjectById(hit.object.id));
-      // Limit the second ray to objects in front of the cabinet; ignore glass, rain and pick proxies.
+  const hits = sakuraRaycaster.intersectObjects(interactions.map((item) => item.pickRoot), true);
+  for (const hit of hits) {
+    if (!isWorldVisible(hit.object)) continue;
+    const interaction = interactions.find((item) => item.pickRoot === hit.object ||
+      item.pickRoot.getObjectById(hit.object.id));
+    if (!interaction) continue;
+    if (interaction.checkOcclusion) {
       sakuraRaycaster.far = Math.max(0, hit.distance - 0.025);
       const blocked = sakuraRaycaster.intersectObject(world.root, true).some(isPurchaseBlocker);
       sakuraRaycaster.far = Infinity;
-      if (machine && !blocked) {
-        vendingPanel.open(machine);
-        return;
-      }
+      if (blocked) continue;
     }
+    rig.focus(interaction.pickRoot, interaction.open);
+    return;
   }
-  if (sakuraRaycaster.intersectObject(world.street.sakura.pickRoot, true).length > 0) {
-    sakuraPanel.setOpen(true);
-  }
+});
+window.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') rig.cancelFocus();
 });
 canvas.addEventListener('pointercancel', (event) => {
   activePointers.delete(event.pointerId);
   sakuraPointerStart = null;
+  rig.cancelFocus();
 });
 window.addEventListener('blur', () => {
   activePointers.clear();
   sakuraPointerStart = null;
+  rig.cancelFocus();
 });
 window.addEventListener('beforeunload', () => {
   sakuraPanel.destroy();
@@ -296,10 +311,15 @@ const clock = new THREE.Clock();
 let elapsed = 0;
 
 function frame(): void {
-  const dt = Math.min(clock.getDelta(), 0.05);
+  const realDelta = clock.getDelta();
+  const dt = Math.min(realDelta, 0.05);
   elapsed += dt;
-  if (!bottleDrag.isActive()) rig.update(dt);
-  world.update(elapsed, dt, camera);
+  if (!bottleDrag.isActive() && !vendingPanel.isOpen() && !sakuraPanel.isOpen()) rig.update(dt);
+  // Weather uses elapsed time even on slow GPUs; physics keeps its bounded step.
+  // A suspended tab must not instantly accumulate or melt the entire scene on return.
+  world.update(elapsed, dt, camera, document.hidden ? 0 : Math.min(realDelta, 1));
+  const surface = world.environment.details();
+  envUI.setSnowFeedback(surface.snowOnGround, surface.weather, surface.meltwater);
   pipeline.render(elapsed, dt);
   // 帧率守卫：只有真的跑不动才退档，正常设备一直保持最高清晰度
   watchFrameBudget(dt * 1000);
@@ -316,6 +336,7 @@ declare global {
       scene: THREE.Scene;
       camera: THREE.PerspectiveCamera;
       controls: typeof rig.controls;
+      cameraRig: typeof rig;
       world: typeof world;
       renderer: THREE.WebGLRenderer;
       pipeline: typeof pipeline;
@@ -352,6 +373,7 @@ window.__konbini = {
   scene,
   camera,
   controls: rig.controls,
+  cameraRig: rig,
   world,
   renderer,
   pipeline,
@@ -371,6 +393,7 @@ window.__konbini = {
   },
   skipOpening: () => opening.skip(),
   view: (pos, target) => {
+    rig.cancelFocus();
     camera.position.set(pos[0], pos[1], pos[2]);
     rig.controls.target.set(target[0], target[1], target[2]);
     rig.controls.update();

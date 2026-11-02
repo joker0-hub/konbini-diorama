@@ -15,7 +15,9 @@
     "shots": "node scripts/shoot.mjs",
     "verify": "node scripts/verify.mjs",
     "check:ui": "node scripts/check-ui.mjs",
+    "check:interaction": "node scripts/check-interaction-focus.mjs",
     "check:env": "node scripts/check-env.mjs",
+    "check:snow": "node scripts/check-snow.mjs",
     "check:signal": "node scripts/check-signal.mjs",
     "check:vending": "node scripts/check-vending.mjs",
     "check:vending-ui": "node scripts/check-vending-ui.mjs"

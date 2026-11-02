@@ -12,6 +12,8 @@
  */
 
 import * as THREE from 'three';
+import { L } from './layout';
+import type { SnowPatch } from './snow';
 
 const VERT = /* glsl */ `
   attribute vec3 aOffset;
@@ -21,6 +23,7 @@ const VERT = /* glsl */ `
   uniform float uHeight;
   uniform float uArea;
   uniform float uFallSpeed;
+  uniform sampler2D uSurfaceMap;
 
   varying float vAlpha;
   varying vec2 vUv;
@@ -37,7 +40,8 @@ const VERT = /* glsl */ `
     float sway = sin(uTime * (0.7 + aRand.y * 0.9) + aRand.z * 6.28) * 0.35
                + sin(uTime * (1.9 + aRand.z * 1.3) + aRand.x * 6.28) * 0.12;
 
-    vec3 p = vec3(aOffset.x + sway, y, aOffset.z);
+    vec3 p = vec3(aOffset.x + sway, y, aOffset.z + sin(uTime * 0.43 + aRand.x * 6.28) * 0.18);
+    float surfaceY = texture2D(uSurfaceMap, clamp(p.xz / 16.6 + 0.5, 0.0, 1.0)).r;
 
     // 世界坐标 -> 摄像机朝向的四边形
     vec4 mvCenter = modelViewMatrix * vec4(p, 1.0);
@@ -49,7 +53,10 @@ const VERT = /* glsl */ `
     gl_Position = projectionMatrix * mvCenter;
 
     // 靠近地面淡出，避免在地砖上留一层生硬的白点
-    vAlpha = smoothstep(0.0, 0.5, y) * (1.0 - smoothstep(uHeight * 0.82, uHeight, y));
+    // Snow lands on the highest roof/hood/pavement instead of falling through the shop.
+    vAlpha = smoothstep(surfaceY + 0.015, surfaceY + 0.13, y)
+      * (1.0 - smoothstep(uHeight * 0.88, uHeight, y));
+    vAlpha *= 0.62 + 0.38 * abs(sin(uTime * 1.4 + aRand.z * 6.28));
   }
 `;
 
@@ -78,7 +85,7 @@ export interface Snowfall {
 
 export function buildSnowfall(
   root: THREE.Object3D,
-  opts: { count?: number; height?: number; area?: number } = {},
+  opts: { count?: number; height?: number; area?: number; surfaces?: readonly SnowPatch[] } = {},
 ): Snowfall {
   const count = opts.count ?? 1800;
   const height = opts.height ?? 11;
@@ -93,17 +100,32 @@ export function buildSnowfall(
 
   const offs = new Float32Array(count * 3);
   const rands = new Float32Array(count * 3);
+  let seed = 7391;
+  const random = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
   for (let i = 0; i < count; i++) {
-    offs[i * 3] = (Math.random() - 0.5) * area;
-    offs[i * 3 + 1] = Math.random() * height;
-    offs[i * 3 + 2] = (Math.random() - 0.5) * area;
-    rands[i * 3] = Math.random();
-    rands[i * 3 + 1] = Math.random();
-    rands[i * 3 + 2] = Math.random();
+    offs[i * 3] = (random() - 0.5) * area;
+    offs[i * 3 + 1] = random() * height;
+    offs[i * 3 + 2] = (random() - 0.5) * area;
+    rands[i * 3] = random();
+    rands[i * 3 + 1] = random();
+    rands[i * 3 + 2] = random();
   }
   geo.setAttribute('aOffset', new THREE.InstancedBufferAttribute(offs, 3));
   geo.setAttribute('aRand', new THREE.InstancedBufferAttribute(rands, 3));
 
+  const resolution = 256;
+  const heights = new Float32Array(resolution * resolution);
+  for (let iz = 0; iz < resolution; iz++) for (let ix = 0; ix < resolution; ix++) {
+    const x = ((ix + 0.5) / resolution - 0.5) * 16.6;
+    const z = ((iz + 0.5) / resolution - 0.5) * 16.6;
+    let top = x < L.walk.xOuter && z < L.walk.zOuter ? L.curb : 0;
+    for (const s of opts.surfaces ?? []) {
+      if (x >= s.x0 && x <= s.x1 && z >= s.z0 && z <= s.z1) top = Math.max(top, s.y);
+    }
+    heights[iz * resolution + ix] = top;
+  }
+  const surfaceMap = new THREE.DataTexture(heights, resolution, resolution, THREE.RedFormat, THREE.FloatType);
+  surfaceMap.needsUpdate = true;
   const mat = new THREE.ShaderMaterial({
     vertexShader: VERT,
     fragmentShader: FRAG,
@@ -112,6 +134,7 @@ export function buildSnowfall(
       uHeight: { value: height },
       uArea: { value: area },
       uFallSpeed: { value: 0.62 },
+      uSurfaceMap: { value: surfaceMap },
       uOpacity: { value: 0 },
       uColor: { value: new THREE.Color(0xf2f7ff) },
     },
@@ -125,8 +148,8 @@ export function buildSnowfall(
   mesh.name = 'snowfall';
   mesh.frustumCulled = false;
   mesh.renderOrder = 8;
-  // 层 1：不参与描边的深度通道
-  mesh.layers.set(1);
+  // Layer 2 is excluded from the depth-outline pass.
+  mesh.layers.set(2);
   root.add(mesh);
 
   return {
