@@ -36,6 +36,9 @@ try {
   browser = await puppeteer.launch({ executablePath: chrome, headless: true,
     args: ['--enable-unsafe-swiftshader', '--no-sandbox'], defaultViewport: { width: 900, height: 650 } });
   const page = await browser.newPage();
+  // Includes compiling the 3D scene again after clicking Replay on CPU-only CI.
+  page.setDefaultNavigationTimeout(120000);
+  page.setDefaultTimeout(90000);
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
