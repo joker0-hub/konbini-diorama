@@ -352,7 +352,7 @@ const envOk = await page.evaluate(async () => {
       });
     }
   }
-  // 复原到默认「白天 + 雨」
+  // 复原到「白天 + 雨」，继续检查雨景构件
   window.__konbini.env.set({ time: 'day', weather: 'rain' }, true);
   return seen;
 });

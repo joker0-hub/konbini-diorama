@@ -1572,3 +1572,22 @@ export function freshFoodTex(kind: 'onigiri' | 'bento' | 'sandwich' | 'bread' | 
     return finish(c);
   });
 }
+
+/** Enamel label on the front of the umbrella rack. */
+export function umbrellaStandLabelTex(): THREE.Texture {
+  return cached('umbrella-stand-label', () => {
+    const [c, ctx] = mk(512, 160);
+    ctx.fillStyle = '#e9e7dc'; ctx.fillRect(0, 0, 512, 160);
+    ctx.strokeStyle = '#404a52'; ctx.lineWidth = 3; ctx.strokeRect(7, 7, 498, 146);
+    // Umbrella pictogram: dome, ribs, shaft and hooked handle.
+    ctx.fillStyle = '#34434f'; ctx.beginPath(); ctx.arc(65, 69, 33, Math.PI, 0); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#34434f'; ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.moveTo(65, 30); ctx.lineTo(65, 105);
+    ctx.bezierCurveTo(65, 124, 89, 124, 89, 106); ctx.stroke();
+    ctx.fillStyle = '#243440'; ctx.textAlign = 'left';
+    ctx.font = `800 45px ${JP}`; ctx.fillText('傘立て', 132, 65);
+    ctx.font = `700 19px ${JP}`; ctx.fillText('UMBRELLA STAND', 134, 94);
+    ctx.font = `500 19px ${JP}`; ctx.fillText('お忘れ物にご注意ください', 134, 129);
+    return finish(c);
+  });
+}

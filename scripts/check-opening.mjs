@@ -87,6 +87,11 @@ try {
   check('揭幕后开始播放组装', true);
   await page.waitForFunction(() => window.__konbini.world.assembly.finished, { timeout: 90000 });
   check('组装完成，重播入口可见', await page.$eval('.opening-replay', (el) => !el.hidden));
+  check('入场完成默认白天晴天，无降雨或积雪', await page.evaluate(() => {
+    const k = window.__konbini, state = k.env.get(), surface = k.env.details();
+    return state.time === 'day' && state.weather === 'clear' &&
+      surface.rain === 0 && surface.snow === 0 && surface.meltwater === 0 && k.env.getSnow() === 0;
+  }));
   await page.reload({ waitUntil: 'domcontentloaded' });
   await ready();
   check('看过开场后刷新仍然播放', !!await page.$('.intro'));

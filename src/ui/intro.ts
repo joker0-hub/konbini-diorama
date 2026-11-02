@@ -237,7 +237,7 @@ export function createCodeOpening(
   if (opts.disabled || typeof document === 'undefined') return noopOpening;
 
   const time = (opts.time ?? 'day').toLowerCase();
-  const weather = (opts.weather ?? 'rain').toLowerCase();
+  const weather = (opts.weather ?? 'clear').toLowerCase();
   const STAGE1 = stageOne(time, weather);
   const STAGE2 = stageTwo();
   const CODE = STAGE1.concat(STAGE2);

@@ -69,7 +69,7 @@ void P;
 /**
  * 初始环境由 URL 参数决定：
  *   ?time=day|dusk|night   ?weather=clear|rain|snow
- * 缺省为「白天 + 雨」—— 雨里亮着灯的便利店，是这组石膏微缩模型的主场景。
+ * 缺省为「白天 + 晴」，开场字幕和揭幕后场景使用同一初始环境。
  * 加 &instant=1 可让积雪/过渡立刻到位（截图与自动化测试用）。
  */
 function readEnvFromUrl(): { time: TimeOfDay; weather: Weather; instant: boolean; intro: boolean; forceIntro: boolean } {
@@ -77,7 +77,7 @@ function readEnvFromUrl(): { time: TimeOfDay; weather: Weather; instant: boolean
   const t = q.get('time');
   const w = q.get('weather');
   const time: TimeOfDay = t === 'day' || t === 'dusk' || t === 'night' ? t : 'day';
-  const weather: Weather = w === 'clear' || w === 'rain' || w === 'snow' ? w : 'rain';
+  const weather: Weather = w === 'clear' || w === 'rain' || w === 'snow' ? w : 'clear';
   const options = {
     time,
     weather,

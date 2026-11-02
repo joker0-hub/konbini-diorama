@@ -43,7 +43,7 @@ export interface World {
   setSky: (zenith: number, horizon: number) => void;
 }
 
-export function buildWorld(envInit: EnvState = { time: 'day', weather: 'rain' }): World {
+export function buildWorld(envInit: EnvState = { time: 'day', weather: 'clear' }): World {
   const root = new THREE.Group();
   root.name = 'diorama';
   let mergeEnabled = true;
@@ -53,7 +53,7 @@ export function buildWorld(envInit: EnvState = { time: 'day', weather: 'rain' })
 
   /* ---------------- 环境光 ---------------- */
   // 环境光的具体数值由 Environment 在构造时覆盖；
-  // 这里给的是"白天 + 雨"的初值（新默认），只为保证第一帧不会闪。
+  // 初值随后由默认的「白天 + 晴」或 URL 指定的环境同步，避免首帧闪烁。
   const hemi = new THREE.HemisphereLight(0xc4d8f0, 0x7d7668, 1.55);
   root.add(hemi);
   const moon = new THREE.DirectionalLight(0xfff4dd, 1.1);

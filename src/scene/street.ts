@@ -19,6 +19,7 @@ import { buildVendingMachine, type VendingHandles } from './vending';
 import { BottlePhysics } from '../core/bottle-physics';
 import { buildRecyclingBin } from './recycling-bin';
 import { buildBicycle } from './bicycle';
+import { buildUmbrellaStand } from './umbrella-stand';
 
 const CURB = L.curb;
 
@@ -594,107 +595,6 @@ function buildNeighbor(parent: THREE.Object3D, ctx: SceneCtx): void {
   addBox(g, toon(0x363d4a), 0.5, 0.14, 2.4, N.x1 + 0.25, 0, N.z1 - 1.6);
 
   ctx.pieces.push(g);
-}
-
-function buildUmbrellaStand(parent: THREE.Object3D, x: number, z: number): void {
-  /* 参考图里的黑框伞架：
-   *   底部实心盘 + 四角立柱 + 顶部一圈方管框，四把合拢的伞
-   *   （黑 / 蓝 / 红 / 白）插在框里，J 形伞柄露在框顶上方。
-   * 旧版是一个水泥圆柱 + 四根细棍，和参考图完全不是一类东西。
-   */
-  const g = group(parent, x, CURB + 0.003, z, 'umbrella-stand');
-  const frame = toon(0x1b2027);
-  const frameHi = toon(0x303843);
-  const tray = toon(0x0e1116);
-  const shaftMat = toon(0x7d848f);
-
-  const W = 0.84;
-  const D = 0.46;
-  const baseH = 0.1;
-  const frameH = 0.86;
-
-  // 底座 + 内托盘 + 上沿
-  addBox(g, frame, W, baseH, D, 0, 0, 0, { r: 0.012 });
-  addBox(g, tray, W - 0.1, 0.012, D - 0.1, 0, baseH, 0, { cast: false });
-  addBox(g, frameHi, W + 0.02, 0.025, D + 0.02, 0, baseH - 0.01, 0, { r: 0.008 });
-
-  // 四角立柱 + 顶部方框
-  for (const sx of [-W / 2 + 0.02, W / 2 - 0.02]) {
-    for (const sz of [-D / 2 + 0.02, D / 2 - 0.02]) {
-      addBox(g, frame, 0.04, frameH, 0.04, sx, baseH, sz);
-    }
-  }
-  addBox(g, frameHi, W - 0.02, 0.04, 0.04, 0, baseH + frameH - 0.04, -D / 2 + 0.02);
-  addBox(g, frameHi, W - 0.02, 0.04, 0.04, 0, baseH + frameH - 0.04, D / 2 - 0.02);
-  addBox(g, frameHi, 0.04, 0.04, D - 0.02, -W / 2 + 0.02, baseH + frameH - 0.04, 0);
-  addBox(g, frameHi, 0.04, 0.04, D - 0.02, W / 2 - 0.02, baseH + frameH - 0.04, 0);
-
-  // 四把合拢的伞。参考图从左到右：黑、蓝、红、白。
-  const canopyProfile = [
-    [0.014, 0.0],
-    [0.02, 0.04],
-    [0.038, 0.12],
-    [0.052, 0.24],
-    [0.058, 0.37],
-    [0.051, 0.49],
-    [0.035, 0.61],
-    [0.018, 0.68],
-  ] as [number, number][];
-  const umbrellas: [string, number, number][] = [
-    ['black', 0x262b34, -0.27],
-    ['blue', 0x2f5fb8, -0.09],
-    ['red', 0xc73e35, 0.09],
-    ['white', 0xe7e3d8, 0.27],
-  ];
-
-  for (const [name, color, ux] of umbrellas) {
-    const ug = group(g, ux, baseH, 0, 'umbrella-' + name);
-    const mat = toon(color, { side: THREE.DoubleSide, map: TX.umbrellaFoldTex() });
-    const handleMat = toon(color, { side: THREE.DoubleSide });
-    const bandColor = new THREE.Color(color).multiplyScalar(0.58).getHex();
-
-    // 伞杆（大部分藏在伞面里）
-    addCyl(ug, shaftMat, 0.009, 0.009, 0.93, 0, 0.05, 0, { seg: 6 });
-
-    // 合拢的伞面：8 边形 lathe + 平面法线，折面在 toon 色阶下读作伞布褶皱
-    let canopyGeo: THREE.BufferGeometry = new THREE.LatheGeometry(
-      canopyProfile.map(([r, y]) => new THREE.Vector2(r, y)),
-      12,
-    );
-    canopyGeo = canopyGeo.toNonIndexed();
-    canopyGeo.computeVertexNormals();
-    const canopy = new THREE.Mesh(canopyGeo, mat);
-    canopy.position.y = 0.06;
-    canopy.castShadow = true;
-    canopy.receiveShadow = true;
-    ug.add(canopy);
-
-    // 中段束带
-    const band = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.06, 0.06, 0.026, 12, 1, true),
-      toon(bandColor, { side: THREE.DoubleSide }),
-    );
-    band.position.y = 0.42;
-    band.castShadow = false;
-    ug.add(band);
-
-    // 底部金属伞尖
-    addCyl(ug, shaftMat, 0.01, 0.003, 0.06, 0, 0.02, 0, { seg: 6 });
-
-    // J 形伞柄，朝街道方向弯
-    const curve = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(0, 0.94, 0),
-      new THREE.Vector3(0, 1.04, 0.0),
-      new THREE.Vector3(0, 1.11, 0.04),
-      new THREE.Vector3(0, 1.135, 0.1),
-      new THREE.Vector3(0, 1.08, 0.16),
-      new THREE.Vector3(0, 1.0, 0.175),
-    ]);
-    const handle = new THREE.Mesh(new THREE.TubeGeometry(curve, 14, 0.018, 6, false), handleMat);
-    handle.castShadow = true;
-    ug.add(handle);
-    addMesh(ug, new THREE.SphereGeometry(0.018, 8, 6), handleMat, 0, 1.0, 0.175).castShadow = false;
-  }
 }
 
 function buildTrashBins(parent: THREE.Object3D, x: number, z: number, physics: BottlePhysics, recyclingBins: THREE.Object3D[]): void {
