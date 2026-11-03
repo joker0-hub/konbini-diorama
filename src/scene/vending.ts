@@ -1,10 +1,16 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { addBox, addCyl, addMesh, group, noOutline, planeGeo, cylGeo, DETAIL_LAYER } from '../core/geom';
-import { toon, glow, decal, RAMP_SOFT } from '../core/materials';
+import { glow, decal } from '../core/materials';
 import { VENDING_DRINKS, type Drink, type VendingVariant } from '../core/vending-products';
 import { mergeStaticMeshes } from './merge';
 import { BottlePhysics } from '../core/bottle-physics';
+import { finishVendingTexture, vendingFinish, vendingGlassMaterial } from '../core/vending-detail';
+
+export interface VendingSoundEvent {
+  type: 'purchase' | 'impact' | 'pickup' | 'recycle';
+  strength: number;
+}
 
 export interface BottleState {
   id: number;
@@ -24,6 +30,7 @@ export interface VendingHandles {
   pickRoot: THREE.Object3D;
   products: readonly Drink[];
   purchase: (drinkId: string) => boolean;
+  onSound: (listener: (event: VendingSoundEvent) => void) => () => void;
   isBusy: () => boolean;
   getBottles: () => readonly { id: number; drinkId: string }[];
   getDraggableBottles: () => readonly { id: number; mesh: THREE.Group }[];
@@ -45,9 +52,7 @@ function texture(key: string, width: number, height: number, paint: (ctx: Canvas
   canvas.width = width;
   canvas.height = height;
   paint(canvas.getContext('2d')!);
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 8;
+  const tex = finishVendingTexture(new THREE.CanvasTexture(canvas));
   textures.set(key, tex);
   return tex;
 }
@@ -73,42 +78,70 @@ const bottleBody = new THREE.LatheGeometry([
   new THREE.Vector2(0.016, 0.067),
   new THREE.Vector2(0.016, 0.08),
   new THREE.Vector2(0, 0.08),
-], 16);
+], 40);
+
+const bottleRing = new THREE.TorusGeometry(0.032, 0.0012, 6, 40).rotateX(Math.PI / 2);
+const neckRing = new THREE.TorusGeometry(0.018, 0.001, 6, 32).rotateX(Math.PI / 2);
+const capSide = new THREE.CylinderGeometry(0.0185, 0.0185, 0.021, 32, 1, true);
+const capLid = new THREE.CircleGeometry(0.0185, 32).rotateX(-Math.PI / 2);
 
 function bottleLabel(drink: Drink): THREE.CanvasTexture {
-  return texture('bottle-' + drink.id, 512, 256, (c) => {
+  return texture('bottle-' + drink.id, 1024, 512, (c) => {
     c.fillStyle = drink.color;
-    c.fillRect(0, 0, 512, 256);
-    // Broad coloured packaging stays readable at the miniature's normal viewing distance.
-    c.fillStyle = '#f4f0df';
-    c.fillRect(0, 25, 512, 10);
-    c.fillRect(0, 221, 512, 10);
-    for (const x of [128, 384]) {
-      c.fillStyle = '#f4f0df';
-      c.beginPath(); c.arc(x, 113, 59, 0, Math.PI * 2); c.fill();
-      c.fillStyle = drink.color;
+    c.fillRect(0, 0, 1024, 512);
+    c.fillStyle = '#f8f4e7';
+    c.fillRect(0, 10, 1024, 9);
+    c.fillRect(0, 476, 1024, 8);
+    const subtitle: Record<string, string> = { water: '山の天然水', tea: '香り緑茶', ramune: '爽やかソーダ', peach: '白桃のしずく', coffee: 'まろやかミルク', orange: '果汁 100%' };
+    for (const x of [256, 768]) {
       c.textAlign = 'center';
       c.textBaseline = 'middle';
-      c.font = `700 ${drink.label.length > 2 ? 28 : 48}px ${FONT}`;
-      c.fillText(drink.label, x, 112);
-      c.fillStyle = '#fff7e5';
-      c.font = `bold 13px ${FONT}`;
-      c.fillText('HOSHINO  ·  350 ml', x, 190);
+      c.fillStyle = '#fff9e9'; c.font = `700 27px ${FONT}`; c.fillText('HOSHINO', x, 51);
+      c.fillStyle = '#fcf6df';
+      c.beginPath(); c.arc(x, 148, 60, 0, Math.PI * 2); c.fill();
+      if (drink.id === 'water') {
+        c.fillStyle = '#397a98'; c.beginPath();
+        c.moveTo(x - 45, 166); c.lineTo(x - 8, 112); c.lineTo(x + 33, 166); c.fill();
+        c.fillStyle = '#70b4cd'; c.beginPath();
+        c.moveTo(x - 5, 166); c.lineTo(x + 27, 126); c.lineTo(x + 50, 166); c.fill();
+        c.fillStyle = '#f7faf2'; c.beginPath();
+        c.moveTo(x - 20, 130); c.lineTo(x - 8, 112); c.lineTo(x + 6, 131); c.fill();
+      } else if (drink.id === 'tea') {
+        c.fillStyle = '#39733d';
+        c.beginPath(); c.ellipse(x - 15, 145, 13, 30, -0.7, 0, Math.PI * 2); c.fill();
+        c.beginPath(); c.ellipse(x + 16, 137, 13, 32, 0.65, 0, Math.PI * 2); c.fill();
+      } else if (drink.id === 'coffee') {
+        c.fillStyle = '#65402c'; c.beginPath(); c.ellipse(x, 148, 27, 38, 0.5, 0, Math.PI * 2); c.fill();
+        c.strokeStyle = '#ebc79e'; c.lineWidth = 5; c.beginPath(); c.moveTo(x + 12, 120); c.lineTo(x - 12, 176); c.stroke();
+      } else if (drink.id === 'ramune') {
+        c.strokeStyle = '#4f83b7'; c.lineWidth = 4;
+        for (const [dx, dy, r] of [[-22, 10, 19], [19, -17, 15], [22, 27, 9]]) {
+          c.beginPath(); c.arc(x + dx, 147 + dy, r, 0, Math.PI * 2); c.stroke();
+        }
+      } else {
+        c.fillStyle = drink.id === 'peach' ? '#eb9eaa' : '#e9a334';
+        c.beginPath(); c.arc(x - (drink.id === 'peach' ? 12 : 0), 151, 31, 0, Math.PI * 2); c.fill();
+        if (drink.id === 'peach') { c.beginPath(); c.arc(x + 12, 151, 31, 0, Math.PI * 2); c.fill(); }
+        c.fillStyle = '#4d8457'; c.beginPath(); c.ellipse(x + 15, 112, 21, 9, -0.4, 0, Math.PI * 2); c.fill();
+      }
+      c.fillStyle = '#fffaf0'; c.font = `700 ${drink.label.length > 2 ? 66 : 104}px ${FONT}`;
+      c.fillText(drink.label, x, 279);
+      c.font = `600 27px ${FONT}`; c.fillText(subtitle[drink.id], x, 367);
+      c.fillStyle = '#f5eddb'; c.fillRect(x - 117, 411, 234, 40);
+      c.fillStyle = '#374b51'; c.font = `600 22px ${FONT}`; c.fillText('SELECT  /  350 ml', x, 432);
     }
-    // A baked soft roll-off keeps the unlit label looking cylindrical, even in the
-    // machine's bright showcase where lit white packaging otherwise clips to white.
-    const shading = c.createLinearGradient(0, 0, 512, 0);
-    for (const [stop, alpha] of [[0, 0.18], [0.25, 0], [0.5, 0.18], [0.75, 0], [1, 0.18]]) {
+    const shading = c.createLinearGradient(0, 0, 1024, 0);
+    for (const [stop, alpha] of [[0, 0.26], [0.25, 0], [0.5, 0.26], [0.75, 0], [1, 0.26]]) {
       shading.addColorStop(stop, `rgba(10, 20, 25, ${alpha})`);
     }
-    c.fillStyle = shading; c.fillRect(0, 0, 512, 256);
+    c.fillStyle = shading; c.fillRect(0, 0, 1024, 512);
   });
 }
 
 function bottleLabelMaterial(drink: Drink): THREE.MeshBasicMaterial {
   let material = bottleLabels.get(drink.id);
   if (!material) {
-    material = new THREE.MeshBasicMaterial({ map: bottleLabel(drink), color: 0xe8e8e8, toneMapped: false });
+    material = new THREE.MeshBasicMaterial({ map: bottleLabel(drink), color: 0xffffff, toneMapped: false });
     bottleLabels.set(drink.id, material);
   }
   return material;
@@ -117,13 +150,26 @@ function bottleLabelMaterial(drink: Drink): THREE.MeshBasicMaterial {
 function makeBottle(drink: Drink, dynamic: boolean): THREE.Group {
   const g = new THREE.Group();
   g.name = 'bottle-' + drink.id;
-  const bodyColor = new THREE.Color(drink.color).multiplyScalar(0.72);
-  addMesh(g, bottleBody, toon(bodyColor.getHex(), { ramp: RAMP_SOFT }), 0, 0, 0, { cast: false });
-  addMesh(g, cylGeo(0.0345, 0.0345, 0.086, 16), bottleLabelMaterial(drink), 0, -0.015, 0, { cast: false });
+  const bodyColor = new THREE.Color(drink.color).multiplyScalar(0.9);
+  addMesh(g, bottleBody, vendingFinish(bodyColor.getHex(), true), 0, 0, 0, { cast: false });
+  const sleeve = addMesh(g, cylGeo(0.0345, 0.0345, 0.092, 40), bottleLabelMaterial(drink), 0, -0.012, 0, { cast: false });
+  // Cylinder u=0 faces +Z: rotate the center of a printed panel onto the front.
+  sleeve.rotation.y = -Math.PI / 2;
   const cap = new THREE.Color(drink.capColor ?? '#eff1e9').getHex();
-  addCyl(g, toon(cap, { ramp: RAMP_SOFT }), 0.0185, 0.0185, 0.021, 0, 0.073, 0, { seg: 16, cast: false });
-  addCyl(g, toon(0xe2e6e1), 0.02, 0.02, 0.006, 0, 0.066, 0, { seg: 16, cast: false });
-  addCyl(g, toon(0xf0eee4), 0.032, 0.032, 0.006, 0, -0.079, 0, { seg: 16, cast: false });
+  const capTexture = texture('bottle-cap-' + cap, 256, 64, (c) => {
+    c.fillStyle = drink.capColor ?? '#eff1e9'; c.fillRect(0, 0, 256, 64);
+    for (let i = 0; i < 32; i++) {
+      c.fillStyle = 'rgba(20,35,40,0.22)'; c.fillRect(i * 8, 8, 2, 48);
+      c.fillStyle = 'rgba(255,255,255,0.3)'; c.fillRect(i * 8 + 2, 8, 1, 48);
+    }
+  });
+  // Map only the sidewall; the lid remains a solid molded surface.
+  addMesh(g, capSide, vendingFinish(0xffffff, false, capTexture), 0, 0.0835, 0, { cast: false });
+  addMesh(g, capLid, vendingFinish(cap), 0, 0.094, 0, { cast: false });
+  addCyl(g, vendingFinish(0xd4dedb, true), 0.0195, 0.0195, 0.005, 0, 0.067, 0, { seg: 32, cast: false });
+  addCyl(g, vendingFinish(0xbacdc8, true), 0.031, 0.032, 0.005, 0, -0.086, 0, { seg: 40, cast: false });
+  for (const y of [-0.067, 0.043]) addMesh(g, bottleRing, vendingFinish(bodyColor.getHex(), true), 0, y, 0, { cast: false });
+  addMesh(g, neckRing, vendingFinish(0xc4d6d4, true), 0, 0.064, 0, { cast: false });
   // The actual outline pass includes layers 0 AND 1. Layer 2 preserves the bottle's
   // coloured detail without thick black rings swallowing these very small labels.
   g.traverse((o) => o.layers.set(DETAIL_LAYER));
@@ -151,12 +197,13 @@ export function buildVendingMachine(
   root.rotation.y = ry;
   const cabinet = group(root, 0, 0, 0, 'vending-cabinet');
   const accentColor = variant === 'blue' ? 0x315eaa : 0xb94e43;
-  const accent = toon(accentColor, { ramp: RAMP_SOFT });
-  const enamel = toon(variant === 'blue' ? 0xe5e9e7 : 0xece5dc, { ramp: RAMP_SOFT });
-  const metal = toon(0xaab5bc, { ramp: RAMP_SOFT });
-  const brightMetal = toon(0xd9dfdd, { ramp: RAMP_SOFT });
-  const charcoal = toon(0x26333d);
-  const inset = toon(0x141e28);
+  const accent = vendingFinish(accentColor, true);
+  const enamel = vendingFinish(variant === 'blue' ? 0xe5e9e7 : 0xece5dc);
+  const metal = vendingFinish(0x8b9da5, true);
+  const brightMetal = vendingFinish(0xc9d6da, true);
+  const charcoal = vendingFinish(0x26333d);
+  const inset = vendingFinish(0x111c25);
+  const detail = (mesh: THREE.Mesh): THREE.Mesh => { mesh.layers.set(DETAIL_LAYER); return mesh; };
 
   // The rear cabinet ends behind both recesses: no solid box fills the collection bay.
   addBox(cabinet, enamel, 0.98, 1.85, 0.49, 0, 0.055, -0.125, { r: 0.035 });
@@ -181,41 +228,51 @@ export function buildVendingMachine(
 
   // Deep illuminated showcase with independent bottles and selection buttons.
   // A softly lit backing preserves label contrast under the existing nearby street lights.
-  addBox(cabinet, new THREE.MeshBasicMaterial({ color: 0xbac6bf }), 0.806, 0.94, 0.025, 0, 0.762, 0.17, { cast: false });
+  const backing = texture('vending-showcase-back', 1024, 1024, (c) => {
+    const shade = c.createLinearGradient(0, 0, 0, 1024);
+    shade.addColorStop(0, '#a4b7b8'); shade.addColorStop(1, '#526e76');
+    c.fillStyle = shade; c.fillRect(0, 0, 1024, 1024);
+    for (let row = 0; row < 3; row++) {
+      const light = c.createLinearGradient(0, row * 328, 0, row * 328 + 310);
+      light.addColorStop(0, 'rgba(12,35,44,0.38)'); light.addColorStop(0.55, 'rgba(12,35,44,0.08)'); light.addColorStop(1, 'rgba(228,246,241,0.15)');
+      c.fillStyle = light; c.fillRect(0, row * 328, 1024, 310);
+    }
+  });
+  addBox(cabinet, new THREE.MeshBasicMaterial({ map: backing }), 0.806, 0.94, 0.025, 0, 0.762, 0.17, { cast: false });
   for (const sx of [-1, 1]) {
-    addBox(cabinet, brightMetal, 0.021, 0.96, 0.22, sx * 0.403, 0.75, 0.283, { cast: false });
-    addBox(cabinet, glow(0xfff4dc, 0.72), 0.009, 0.91, 0.011, sx * 0.385, 0.78, 0.29, { cast: false });
+    detail(addBox(cabinet, brightMetal, 0.021, 0.96, 0.22, sx * 0.403, 0.75, 0.283, { cast: false }));
+    detail(addBox(cabinet, glow(0xe1f5f2, 0.65), 0.009, 0.91, 0.011, sx * 0.385, 0.78, 0.29, { cast: false }));
+    detail(addBox(cabinet, inset, 0.008, 0.952, 0.012, sx * 0.396, 0.758, 0.375, { cast: false }));
   }
   for (let row = 0; row < 3; row++) {
     const shelfY = 0.784 + row * 0.302;
-    addBox(cabinet, brightMetal, 0.8, 0.025, 0.19, 0, shelfY, 0.277, { cast: false });
-    addBox(cabinet, enamel, 0.8, 0.054, 0.025, 0, shelfY - 0.018, 0.38, { cast: false, r: 0.004 });
+    detail(addBox(cabinet, brightMetal, 0.8, 0.025, 0.19, 0, shelfY, 0.277, { cast: false }));
+    detail(addBox(cabinet, enamel, 0.8, 0.054, 0.025, 0, shelfY - 0.018, 0.38, { cast: false, r: 0.004 }));
     const products = Array.from({ length: 5 }, (_, col) => VENDING_DRINKS[(col + row * 2) % VENDING_DRINKS.length]);
     for (let col = 0; col < 5; col++) {
       const px = -0.317 + col * 0.1585;
       const bottle = makeBottle(products[col], false);
       bottle.position.set(px, shelfY + 0.12, 0.29);
       cabinet.add(bottle);
-      addBox(cabinet, charcoal, 0.095, 0.026, 0.026, px, shelfY - 0.047, 0.387, { r: 0.01, cast: false });
+      detail(addBox(cabinet, charcoal, 0.095, 0.026, 0.026, px, shelfY - 0.047, 0.387, { r: 0.01, cast: false }));
       const lamp = addBox(cabinet, glow(0x8abda6, 0.86), 0.066, 0.009, 0.028, px, shelfY - 0.039, 0.392, { r: 0.004, cast: false });
-      noOutline(lamp);
+      detail(lamp);
     }
     label(cabinet, 'vending-prices-' + row, 0.78, 0.033, 0, shelfY + 0.006, 0.397, (c) => {
-      c.fillStyle = '#f1eddf'; c.fillRect(0, 0, c.canvas.width, c.canvas.height);
+      c.fillStyle = '#e6e9df'; c.fillRect(0, 0, c.canvas.width, c.canvas.height);
       c.textAlign = 'center'; c.textBaseline = 'middle';
-      c.font = `600 45px ${FONT}`; c.fillStyle = '#394e60';
+      c.font = `700 51px ${FONT}`; c.fillStyle = '#213640';
       for (let i = 0; i < 5; i++) c.fillText('¥' + products[i].price, (i + 0.5) * 204.8, c.canvas.height * 0.52);
     });
   }
-  const glass = new THREE.Mesh(planeGeo(0.79, 0.92), new THREE.MeshBasicMaterial({
-    color: 0xc6e5e5, transparent: true, opacity: 0.055, depthWrite: false, side: THREE.DoubleSide,
-  }));
-  glass.position.set(0, 1.239, 0.376); glass.renderOrder = 2; cabinet.add(glass); noOutline(glass);
-  // Thin reflected strips suggest glass without washing out the bottles.
-  for (const gx of [-0.351, 0.346]) {
-    const shine = addBox(cabinet, glow(0xffffff, 1, 0.2), 0.012, 0.86, 0.002, gx, 0.81, 0.378, { cast: false });
-    noOutline(shine);
+  const glass = new THREE.Mesh(planeGeo(0.79, 0.92), vendingGlassMaterial());
+  glass.name = 'vending-display-glass';
+  glass.position.set(0, 1.239, 0.376); glass.renderOrder = 2; cabinet.add(glass); detail(glass);
+  // Glass thickness and a fine aluminum bead around the recessed rubber seal.
+  for (const gx of [-0.393, 0.393]) {
+    detail(addBox(cabinet, brightMetal, 0.003, 0.92, 0.008, gx, 0.779, 0.379, { cast: false }));
   }
+  for (const gy of [0.776, 1.699]) detail(addBox(cabinet, brightMetal, 0.79, 0.004, 0.009, 0, gy, 0.378, { cast: false }));
 
   // Recessed payment strip: display, coins, change return and contactless reader.
   addBox(cabinet, enamel, 0.85, 0.257, 0.265, 0, 0.476, 0.25, { r: 0.012 });
@@ -227,7 +284,7 @@ export function buildVendingMachine(
   addBox(cabinet, metal, 0.11, 0.07, 0.025, -0.036, 0.612, 0.411, { r: 0.004, cast: false });
   addBox(cabinet, inset, 0.064, 0.008, 0.012, -0.036, 0.643, 0.429, { cast: false });
   addBox(cabinet, brightMetal, 0.075, 0.031, 0.025, 0.075, 0.629, 0.417, { r: 0.008, cast: false });
-  addBox(cabinet, toon(0x516a76), 0.13, 0.127, 0.029, 0.258, 0.544, 0.416, { r: 0.013, cast: false });
+  detail(addBox(cabinet, vendingFinish(0x384f5c, true), 0.13, 0.127, 0.029, 0.258, 0.544, 0.416, { r: 0.013, cast: false }));
   label(cabinet, 'vending-ic', 0.116, 0.11, 0.258, 0.607, 0.435, (c) => {
     c.strokeStyle = '#c7e7db'; c.lineWidth = 24;
     for (let i = 0; i < 3; i++) { c.beginPath(); c.arc(440, 340, 95 + i * 86, -0.8, 0.8); c.stroke(); }
@@ -253,18 +310,30 @@ export function buildVendingMachine(
 
   // Service-panel seams, recessed ventilation and small fasteners on both sides.
   for (const sx of [-1, 1]) {
+    detail(addBox(cabinet, charcoal, 0.003, 1.59, 0.005, sx * 0.491, 0.13, 0.209, { cast: false }));
     addBox(cabinet, metal, 0.009, 0.43, 0.44, sx * 0.494, 0.37, -0.03, { r: 0.004, cast: false });
     for (let i = 0; i < 7; i++) addBox(cabinet, charcoal, 0.011, 0.015, 0.365, sx * 0.5, 0.408 + i * 0.051, -0.03, { cast: false });
     for (const hy of [0.79, 1.59]) addBox(cabinet, metal, 0.022, 0.102, 0.055, sx * 0.49, hy, 0.27, { r: 0.005, cast: false });
     for (const sy of [0.235, 1.708]) {
       const screw = addCyl(cabinet, brightMetal, 0.009, 0.009, 0.005, sx * 0.457, sy, 0.377, { seg: 8, rx: Math.PI / 2, cast: false });
-      noOutline(screw);
+      detail(screw);
+      detail(addBox(cabinet, charcoal, 0.009, 0.0016, 0.002, sx * 0.457, sy + 0.0017, 0.381, { cast: false }));
+      detail(addBox(cabinet, charcoal, 0.0016, 0.009, 0.002, sx * 0.457, sy - 0.002, 0.381, { cast: false }));
     }
+    const sideMark = label(cabinet, 'vending-side-' + variant, 0.37, 0.63, sx * 0.491, 1.21, -0.055, (c) => {
+      c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillStyle = variant === 'blue' ? '#315eaa' : '#b94e43';
+      c.fillRect(150, 140, 724, 8); c.fillRect(150, 1320, 724, 8);
+      c.font = `800 100px ${FONT}`; c.fillText('HOSHINO', 512, 480);
+      c.font = `800 175px ${FONT}`; c.fillText('DRINKS', 512, 690);
+      c.font = `500 51px ${FONT}`; c.fillText('ひと息、いかがですか。', 512, 910);
+      c.font = `600 35px ${FONT}`; c.fillText('COLD & FRESH  /  24 HOURS', 512, 1180);
+    });
+    sideMark.rotation.y = sx * Math.PI / 2;
   }
 
-  // Merge this cabinet in its own coordinates before the world's later merge.
-  // This keeps the much richer geometry inexpensive and leaves dynamic bottles untouched.
-  mergeStaticMeshes(cabinet);
+  // Batch static enamel and polished parts locally; dynamic purchases stay separate.
+  mergeStaticMeshes(cabinet, { includePhong: true });
 
   // Transparent hit volume survives static mesh merging, but never enters any render pass.
   const pickRoot = new THREE.Mesh(new THREE.BoxGeometry(1.04, 1.99, 0.86), new THREE.MeshBasicMaterial({ visible: false }));
@@ -278,6 +347,10 @@ export function buildVendingMachine(
   const loose = group(parent, 0, 0, 0, 'vending-loose-' + variant);
   const physics = sharedPhysics ?? new BottlePhysics();
   const bottles = new Map<number, DeliveredBottle>();
+  const soundListeners = new Set<(event: VendingSoundEvent) => void>();
+  const emitSound = (type: VendingSoundEvent['type'], strength = 1): void => {
+    for (const listener of soundListeners) listener({ type, strength });
+  };
   const tray: DeliveredBottle[] = [];
   let nextId = 1;
   let active: DeliveredBottle | undefined;
@@ -378,12 +451,21 @@ export function buildVendingMachine(
     body.angularVelocity.set(1.8 + jitter(1.3), jitter(2.8), jitter(2.2));
     physics.world.addBody(body);
     const delivered: DeliveredBottle = { id: nextId++, drinkId, mesh, body, state: 'dispensing', remaining: null, expiresAt: null };
+    let lastImpact = -Infinity;
+    body.addEventListener('collide', (event: { contact: CANNON.ContactEquation }) => {
+      const speed = Math.abs(event.contact.getImpactVelocityAlongNormal());
+      const now = performance.now();
+      if (delivered.state === 'held' || speed < 0.25 || now - lastImpact < 100) return;
+      lastImpact = now;
+      emitSound('impact', Math.min(1, speed / 2.5));
+    });
     mesh.userData.bottleId = delivered.id;
     mesh.userData.vendingId = 'vending-' + variant;
     bottles.set(delivered.id, delivered);
     tray.push(delivered);
     active = delivered;
     dropTime = 0;
+    emitSound('purchase');
     return true;
   }
 
@@ -402,6 +484,7 @@ export function buildVendingMachine(
     bottle.body.velocity.setZero();
     bottle.body.angularVelocity.setZero();
     bottle.body.wakeUp();
+    emitSound('pickup');
     return true;
   }
 
@@ -426,7 +509,7 @@ export function buildVendingMachine(
   function releaseBottle(id: number, worldVelocity: THREE.Vector3, recycle = false): void {
     const bottle = bottles.get(id);
     if (!bottle) return;
-    if (recycle) { removeBottle(bottle); return; }
+    if (recycle) { emitSound('recycle'); removeBottle(bottle); return; }
     if (bottle.state !== 'held') return;
     startGroundTimer(bottle);
     const body = bottle.body;
@@ -439,7 +522,9 @@ export function buildVendingMachine(
     body.velocity.set(velocity.x, velocity.y, velocity.z);
     body.angularVelocity.set(-velocity.z * 4, velocity.x * 2, velocity.x * 4);
     body.wakeUp();
-    if (physics.isInRecyclingBin(new THREE.Vector3(body.position.x, body.position.y, body.position.z))) removeBottle(bottle);
+    if (physics.isInRecyclingBin(new THREE.Vector3(body.position.x, body.position.y, body.position.z))) {
+      emitSound('recycle'); removeBottle(bottle);
+    }
   }
 
   function update(dt: number): void {
@@ -453,7 +538,8 @@ export function buildVendingMachine(
         // when rendering is throttled or the tab resumes after being backgrounded.
         bottle.remaining = Math.max(0, Math.min(bottle.remaining! - elapsed, (bottle.expiresAt! - now) / 1000));
         position.set(bottle.body.position.x, bottle.body.position.y, bottle.body.position.z);
-        if (bottle.remaining <= 1e-9 || physics.isInRecyclingBin(position)) removeBottle(bottle);
+        if (bottle.remaining <= 1e-9) removeBottle(bottle);
+        else if (physics.isInRecyclingBin(position)) { emitSound('recycle'); removeBottle(bottle); }
       } else if (bottle.state === 'tray' || bottle.state === 'dispensing') {
         // If a collision genuinely pushes a drink over the low lip, it becomes a
         // loose drink with the same pickup and cleanup rules as a manually thrown one.
@@ -480,6 +566,10 @@ export function buildVendingMachine(
     pickRoot,
     products: VENDING_DRINKS,
     purchase,
+    onSound(listener) {
+      soundListeners.add(listener);
+      return () => { soundListeners.delete(listener); };
+    },
     isBusy: () => Boolean(active),
     getBottles: () => tray.map(({ id, drinkId }) => ({ id, drinkId })),
     getDraggableBottles: () => [...bottles.values()].map(({ id, mesh }) => ({ id, mesh })),

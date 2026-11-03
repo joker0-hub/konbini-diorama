@@ -10,7 +10,7 @@
  * 材质种类不多，因此桶数很少，draw call 能降一个数量级。
  *
  * 安全边界（很重要）：
- * - 只合并 MeshToonMaterial。灯光、发光体、玻璃、雨、波纹用的都是
+ * - 默认只合并 MeshToonMaterial，静态子树可用 includePhong 加入高光材质。灯光、发光体、玻璃、雨、波纹用的都是
  *   Basic / Shader 材质，且大多是每帧改透明度或位置的，一律不碰。
  * - 跳过 InstancedMesh（商品本来就是 2 个 draw call，合并反而更差）。
  * - 跳过 exclude 列表里的子树（自动门、信号灯等有动画的部件）。
@@ -21,6 +21,8 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 export interface MergeOptions {
+  /** Opt in for a static subtree whose polished parts use Phong materials. */
+  includePhong?: boolean;
   /** 这些 name 的子树不参与合并（含其全部子孙） */
   excludeNames?: string[];
   /** 统计回调 */
@@ -48,7 +50,7 @@ function isExcluded(obj: THREE.Object3D, exclude: Set<string>): boolean {
 }
 
 /**
- * 合并 root 下所有静态 toon 网格。
+ * 合并 root 下所有静态 toon 网格，或显式启用的 Phong 网格。
  * 返回合并前后的网格数量，便于断言。
  */
 export function mergeStaticMeshes(
@@ -70,7 +72,8 @@ export function mergeStaticMeshes(
     if (m.children.length > 0) return; // 有子节点的网格不合并（通常是有意组织）
     const mat = m.material as THREE.Material;
     if (!mat) return;
-    if (!(mat as THREE.MeshToonMaterial).isMeshToonMaterial) return;
+    if (!(mat as THREE.MeshToonMaterial).isMeshToonMaterial &&
+        !(opts.includePhong && (mat as THREE.MeshPhongMaterial).isMeshPhongMaterial)) return;
     if (isExcluded(m, exclude)) return;
     // 显式标记为动态的网格（例如积雪面，每帧改 scale.y）不参与合并。
     // 否则会被并入 merged-static 并从原组摘除，动画就失效了。

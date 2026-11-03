@@ -20,6 +20,7 @@
     "check:env": "node scripts/check-env.mjs",
     "check:snow": "node scripts/check-snow.mjs",
     "check:signal": "node scripts/check-signal.mjs",
+    "check:sound": "node scripts/check-sound.mjs",
     "check:vending": "node scripts/check-vending.mjs",
     "check:vending-ui": "node scripts/check-vending-ui.mjs"
   },

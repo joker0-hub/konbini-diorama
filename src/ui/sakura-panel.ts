@@ -54,18 +54,18 @@ export function createSakuraPanel(
   close.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>';
 
   const controls = document.createElement('div');
-  controls.className = 'sakura-panel__controls';
+  controls.className = 'sakura-panel__controls interaction-panel__controls';
 
   for (const definition of CONTROLS) {
     const row = document.createElement('label');
-    row.className = 'sakura-panel__control';
+    row.className = 'sakura-panel__control interaction-panel__control';
     const top = document.createElement('span');
-    top.className = 'sakura-panel__control-top';
+    top.className = 'sakura-panel__control-top interaction-panel__control-top';
     const label = document.createElement('span');
-    label.className = 'sakura-panel__label';
+    label.className = 'sakura-panel__label interaction-panel__label';
     label.textContent = definition.label;
     const output = document.createElement('output');
-    output.className = 'sakura-panel__value';
+    output.className = 'sakura-panel__value interaction-panel__value';
     output.value = definition.format(definition.value);
     top.append(label, output);
 

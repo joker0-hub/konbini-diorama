@@ -10,8 +10,11 @@ import { createVendingPanel } from './ui/vending-panel';
 import { createBottleDrag } from './ui/bottle-drag';
 import { createEnvUI } from './ui/envbar';
 import { createCodeOpening } from './ui/intro';
+import { createSoundscape } from './audio/soundscape';
+import { createSoundPanel } from './ui/sound-panel';
 import { P } from './core/palette';
 import { applyTextureQuality } from './core/textures';
+import { applyVendingTextureQuality } from './core/vending-detail';
 import { L } from './scene/layout';
 import type { TimeOfDay, Weather } from './scene/environment';
 
@@ -97,9 +100,11 @@ function readEnvFromUrl(): { time: TimeOfDay; weather: Weather; instant: boolean
   return options;
 }
 const envInit = readEnvFromUrl();
+const sound = createSoundscape(envInit);
 
 const world = buildWorld({ time: envInit.time, weather: envInit.weather });
 scene.add(world.root);
+applyVendingTextureQuality(renderer);
 // ?instant=1：把过渡与积雪一次性推到终态（截图 / 自动化测试用）
 if (envInit.instant) world.environment.set({}, true);
 
@@ -187,9 +192,9 @@ resize();
 const envUI = createEnvUI(
   document.body,
   () => world.environment.get(),
-  (patch) => world.environment.set(patch),
+  (patch) => { world.environment.set(patch); sound.play('ui'); },
 );
-const unsubscribeEnvUI = world.environment.onChange((s) => envUI.setState(s));
+const unsubscribeEnvUI = world.environment.onChange((s) => { envUI.setState(s); sound.setEnvironment(s); });
 // 页面销毁时解绑（单页应用里无实际意义，但避免热更新时重复订阅）
 window.addEventListener('beforeunload', () => unsubscribeEnvUI());
 
@@ -243,18 +248,25 @@ const bottleDrag = createBottleDrag({
   machines: world.street.vending, recyclingBins: world.street.recyclingBins,
   canInteract: () => canInteract(),
 });
+const unsubscribeSounds = world.street.vending.map((machine) => machine.onSound(({ type, strength }) => sound.play(type, strength)));
+const soundPanel = createSoundPanel(document.body, sound, () => {
+  rig.cancelFocus();
+  sakuraPanel.setOpen(false);
+  vendingPanel.close();
+});
+soundPanel.setVisible(!opening.isRunning);
 // Register future clickable objects here: every activation shares the same camera approach.
 const interactions = [
   ...world.street.vending.map((machine) => ({
     pickRoot: machine.pickRoot,
-    open: () => vendingPanel.open(machine),
+    open: () => { sound.play('ui'); vendingPanel.open(machine); },
     checkOcclusion: true,
   })),
-  { pickRoot: world.street.sakura.pickRoot, open: () => sakuraPanel.setOpen(true), checkOcclusion: false },
+  { pickRoot: world.street.sakura.pickRoot, open: () => { sound.play('ui'); sakuraPanel.setOpen(true); }, checkOcclusion: false },
 ];
 function canInteract(): boolean {
   return world.assembly.finished && !rig.isFocusing() && !vendingPanel.isOpen() &&
-    !sakuraPanel.isOpen() && !document.querySelector('.intro');
+    !sakuraPanel.isOpen() && !soundPanel.isOpen() && !document.querySelector('.intro');
 }
 const sakuraRaycaster = new THREE.Raycaster();
 const sakuraPointer = new THREE.Vector2();
@@ -338,6 +350,9 @@ window.addEventListener('beforeunload', () => {
   sakuraPanel.destroy();
   vendingPanel.destroy();
   bottleDrag.destroy();
+  soundPanel.destroy();
+  for (const unsubscribe of unsubscribeSounds) unsubscribe();
+  sound.destroy();
 });
 
 /* ---------------- 主循环 ---------------- */
@@ -350,7 +365,9 @@ function frame(): void {
   elapsed += dt;
   world.assembly.paused = opening.isRunning;
   replayButton.hidden = opening.isRunning;
-  if (!bottleDrag.isActive() && !vendingPanel.isOpen() && !sakuraPanel.isOpen()) rig.update(dt);
+  soundPanel.setVisible(!opening.isRunning);
+  sound.setActive(!opening.isRunning && world.assembly.finished);
+  if (!bottleDrag.isActive() && !vendingPanel.isOpen() && !sakuraPanel.isOpen() && !soundPanel.isOpen()) rig.update(dt);
   // Weather uses elapsed time even on slow GPUs; physics keeps its bounded step.
   // A suspended tab must not instantly accumulate or melt the entire scene on return.
   world.update(elapsed, dt, camera, document.hidden ? 0 : Math.min(realDelta, 1));
@@ -401,6 +418,7 @@ declare global {
       };
       /** 街角信号灯：可在控制台读取当前相位 */
       signal: typeof world.signal;
+      sound: typeof sound;
     };
   }
 }
@@ -423,6 +441,7 @@ window.__konbini = {
     details: () => world.environment.details(),
   },
   signal: world.signal,
+  sound,
   skipIntro: () => {
     opening.skip();
     world.assembly.finishNow();

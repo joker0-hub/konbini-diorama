@@ -17,7 +17,7 @@ globalThis.document = {
     const noop = () => {};
     const context = {
       canvas, fillRect: noop, fillText: noop, beginPath: noop,
-      arc: noop, fill: noop, stroke: noop,
+      arc: noop, ellipse: noop, moveTo: noop, lineTo: noop, fill: noop, stroke: noop,
       createLinearGradient: () => ({ addColorStop: noop }),
     };
     canvas.getContext = (kind) => {
