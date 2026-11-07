@@ -82,6 +82,46 @@ function cached(key: string, build: () => THREE.CanvasTexture): THREE.Texture {
   return t;
 }
 
+/** Legible shelf-edge tickets, shared by every fixture in a department. */
+export function shelfTicketsTex(kind: string): THREE.Texture {
+  return cached('shelf-tickets:' + kind, () => {
+    const [c, ctx] = mk(1024, 96);
+    const names: Record<string, string[]> = {
+      drinks: ['天然水', '緑茶', 'ミルク', 'コーヒー'],
+      fresh: ['お弁当', '鮭おにぎり', 'ツナマヨ', 'サンドイッチ'],
+      snacks: ['ポテトチップス', 'チョコレート', 'カップ麺', '焼きたてパン'],
+    };
+    const prices = kind === 'fresh' ? [498, 158, 168, 298] : [128, 158, 198, 148];
+    for (let i = 0; i < 8; i++) {
+      const x = i * 128;
+      ctx.fillStyle = '#f8f5e9'; ctx.fillRect(x, 0, 126, 96);
+      ctx.fillStyle = kind === 'fresh' ? '#448d73' : '#356c9b'; ctx.fillRect(x, 0, 126, 8);
+      ctx.fillStyle = '#384354'; ctx.font = `13px ${JP}`;
+      ctx.fillText((names[kind] ?? names.snacks)[i % 4], x + 6, 26);
+      ctx.fillStyle = i % 3 === 0 ? '#b3432c' : '#202d3b';
+      ctx.font = `bold 32px ${JP}`; ctx.fillText('¥' + prices[i % 4], x + 6, 61);
+      ctx.fillStyle = '#343e4a';
+      for (let b = 0; b < 29; b++) {
+        if ((b * 7 + i) % 5 > 1) ctx.fillRect(x + 8 + b * 2, 73, b % 3 === 0 ? 2 : 1, 13);
+      }
+      ctx.font = `10px ${JP}`; ctx.fillText('税込', x + 88, 84);
+    }
+    return finish(c);
+  });
+}
+
+export function departmentTex(title: string, subtitle: string): THREE.Texture {
+  return cached(`department:${title}:${subtitle}`, () => {
+    const [c, ctx] = mk(768, 160);
+    ctx.fillStyle = '#285677'; ctx.fillRect(0, 0, 768, 160);
+    ctx.fillStyle = '#dfb66d'; ctx.fillRect(0, 150, 768, 10);
+    ctx.textAlign = 'center'; ctx.fillStyle = '#fff9e9';
+    ctx.font = `bold 64px ${JP}`; ctx.fillText(title, 384, 80);
+    ctx.fillStyle = '#c9dee4'; ctx.font = `22px ${JP}`; ctx.fillText(subtitle, 384, 127);
+    return finish(c);
+  });
+}
+
 function rng(seed: number): () => number {
   let a = seed >>> 0;
   return () => {

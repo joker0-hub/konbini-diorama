@@ -9,6 +9,7 @@ export interface CameraRig {
   update: (dt: number) => void;
   focus: (object: THREE.Object3D, onArrival: () => void) => void;
   cancelFocus: () => void;
+  reset: () => void;
   isFocusing: () => boolean;
   getMode: () => 'orbit' | 'first-person';
   setMode: (mode: 'orbit' | 'first-person') => void;
@@ -46,19 +47,25 @@ export function createCameraRig(canvas: HTMLCanvasElement): CameraRig {
    * 关键：目标点必须和桌面端一致地偏向 -x。
    * 原来这里设成 (0.4, 1.15, -0.2)（偏店角），竖屏横向视野本来就窄，
    * 树直接被挤到画面外，用户连点都点不到。
-   * 只在初始化时做一次：之后用户拖拽/缩放不再被强制拉回。
+   * 初始化和主动归位时计算；拖拽、缩放及窗口变化不会自动拉回镜头。
    */
-  const aspect = window.innerWidth / Math.max(1, window.innerHeight);
-  if (aspect < 0.82) {
-    const dir = camera.position.clone().sub(controls.target);
+  const homeView = () => {
+    const position = new THREE.Vector3(9.6, 12.4, 17.6);
+    const target = new THREE.Vector3(-2.6, 0.9, 0.6);
+    const aspect = window.innerWidth / Math.max(1, window.innerHeight);
+    if (aspect >= 0.82) return { position, target, fov: 28 };
+    const dir = position.clone().sub(target);
     // 竖屏更窄，需要退得更远才能同时装下店铺和树；上限提到 1.9
     const k = Math.min(1.9, 1.15 / Math.max(0.4, aspect));
     dir.multiplyScalar(k);
-    controls.target.set(-2.6, 1.1, 0.6);
-    camera.position.copy(controls.target).add(dir);
-    camera.fov = 32;
-    camera.updateProjectionMatrix();
-  }
+    target.set(-2.6, 1.1, 0.6);
+    return { position: target.clone().add(dir), target, fov: 32 };
+  };
+  const initial = homeView();
+  camera.position.copy(initial.position);
+  controls.target.copy(initial.target);
+  camera.fov = initial.fov;
+  camera.updateProjectionMatrix();
 
   controls.update();
 
@@ -85,6 +92,31 @@ export function createCameraRig(canvas: HTMLCanvasElement): CameraRig {
       controls.enabled = next === 'orbit';
     },
     cancelFocus,
+    reset() {
+      cancelFocus();
+      if (document.pointerLockElement === canvas) document.exitPointerLock();
+      mode = 'orbit';
+      controls.enabled = true;
+      controls.autoRotate = false;
+      // Clear accumulated rotation/pan inertia before starting the return flight.
+      const damping = controls.enableDamping;
+      controls.enableDamping = false;
+      controls.update();
+      controls.enableDamping = damping;
+      controls.minDistance = 8;
+      const home = homeView();
+      camera.fov = home.fov;
+      camera.zoom = 1;
+      camera.updateProjectionMatrix();
+      flight = {
+        from: camera.position.clone(), to: home.position,
+        fromTarget: controls.target.clone(), target: home.target,
+        elapsed: 0,
+        duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 0.85,
+        enabled: true, onArrival: () => {},
+      };
+      controls.enabled = false;
+    },
     isFocusing: () => flight !== null,
     focus(object, onArrival) {
       cancelFocus();

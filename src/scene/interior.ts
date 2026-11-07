@@ -28,7 +28,7 @@
 
 import * as THREE from 'three';
 import { P } from '../core/palette';
-import { addBox, addCyl, addFlat, addMesh, group, noOutline, planeGeo } from '../core/geom';
+import { addBox, addCyl, addFlat, addMesh, group, noOutline, planeGeo, sphereGeo } from '../core/geom';
 import { additiveClone, decal, glow, radialGlowTex, toon as toonBase, RAMP_INDOOR } from '../core/materials';
 import { ProductField, type ProductKind } from '../core/products';
 import * as TX from '../core/textures';
@@ -113,12 +113,14 @@ export function buildInterior(root: THREE.Object3D, ctx: SceneCtx): void {
     const cZ = Z0 + 0.4;
     const cH = 2.24;
     const cg = group(g, 0, 0, 0, 'drinks-cooler');
-    addBox(cg, dark, cX1 - cX0, cH, 0.76, (cX0 + cX1) / 2, FY, cZ);
-    addBox(cg, glow(0xe8f6ff, 0.8), cX1 - cX0 - 0.14, cH - 0.36, 0.04,
-      (cX0 + cX1) / 2, FY + 0.12, cZ + 0.29, { cast: false });
+    openCabinet(cg, cX0, cX1, FY, cZ, cH, 0.76, dark);
+    addBox(cg, toon(0xc5dce5), cX1 - cX0 - 0.14, cH - 0.36, 0.02,
+      (cX0 + cX1) / 2, FY + 0.12, cZ - 0.33, { cast: false });
     for (let i = 0; i < 5; i++) {
+      const ty = FY + 0.34 + i * 0.37;
       addBox(cg, toon(0xb4c2d0), cX1 - cX0 - 0.18, 0.02, 0.5,
-        (cX0 + cX1) / 2, FY + 0.34 + i * 0.37, cZ + 0.02, { cast: false });
+        (cX0 + cX1) / 2, ty, cZ + 0.02, { cast: false });
+      shelfTickets(cg, cX1 - cX0 - 0.18, (cX0 + cX1) / 2, ty, cZ + 0.28, 'drinks');
     }
     const perRow = Math.floor((cX1 - cX0 - 0.22) / 0.1);
     for (let r = 0; r < 5; r++) {
@@ -128,9 +130,9 @@ export function buildInterior(root: THREE.Object3D, ctx: SceneCtx): void {
         ? { w: 0.075, h: 0.16, d: 0.075 }
         : kind === 'carton' ? { w: 0.077, h: 0.17, d: 0.077 }
         : { w: 0.077, h: 0.26, d: 0.077 };
-      products.row(kind, {
+      for (const offset of [-0.12, 0.12]) products.row(kind, {
         x0: cX0 + 0.16, count: perRow, step: 0.1,
-        y: FY + 0.36 + r * 0.37, z: cZ - 0.03,
+        y: FY + 0.36 + r * 0.37, z: cZ + offset,
         w: dims.w, h: dims.h, d: dims.d, texOffset: r * 2,
       });
     }
@@ -147,8 +149,12 @@ export function buildInterior(root: THREE.Object3D, ctx: SceneCtx): void {
       cg.add(pane);
       noOutline(pane);
       addBox(cg, toon(0x969da6), 0.026, 0.44, 0.038, x + dw / 2 - 0.1, FY + 0.92, cZ + 0.385);
+      addBox(cg, glow(0xe0f3ff, 0.8), 0.014, cH - 0.35, 0.016,
+        cX0 + dw * i + 0.06, FY + 0.16, cZ + 0.31, { cast: false });
     }
-    const strip = new THREE.Mesh(planeGeo(cX1 - cX0, 0.15), decal(TX.popStripTex(), 0.95));
+    for (let i = 0; i < 13; i++) addBox(cg, metal, 0.11, 0.012, 0.012,
+      cX0 + 0.14 + i * 0.165, FY + 0.06, cZ + 0.387, { cast: false });
+    const strip = new THREE.Mesh(planeGeo(cX1 - cX0, 0.19), decal(TX.departmentTex('ドリンク', 'CHILLED DRINKS · 3–5°C'), 1));
     strip.position.set((cX0 + cX1) / 2, FY + cH + 0.09, cZ + 0.36);
     cg.add(strip);
     noOutline(strip);
@@ -173,10 +179,14 @@ export function buildInterior(root: THREE.Object3D, ctx: SceneCtx): void {
     const bx1 = X1 - 1.15;
     const bz = Z0 + 0.36;
     const bg = group(g, 0, 0, 0, 'bento-case');
-    addBox(bg, toon(0xdfe5e9), bx1 - bx0, 1.72, 0.64, (bx0 + bx1) / 2, FY, bz, { r: 0.02 });
-    addBox(bg, glow(0xf4fcff, 0.72), bx1 - bx0 - 0.1, 1.46, 0.03, (bx0 + bx1) / 2, FY + 0.16, bz + 0.3, { cast: false });
+    openCabinet(bg, bx0, bx1, FY, bz, 1.72, 0.64, toon(0xdfe5e9));
+    addBox(bg, toon(0xd7e4df), bx1 - bx0 - 0.1, 1.46, 0.02, (bx0 + bx1) / 2, FY + 0.16, bz - 0.27, { cast: false });
     for (let i = 0; i < 4; i++) {
+      const ty = FY + 0.26 + i * 0.33;
       addBox(bg, toon(0xa6b2be), bx1 - bx0 - 0.12, 0.02, 0.48, (bx0 + bx1) / 2, FY + 0.26 + i * 0.33, bz + 0.06, { cast: false });
+      shelfTickets(bg, bx1 - bx0 - 0.12, (bx0 + bx1) / 2, ty, bz + 0.31, 'fresh');
+      addBox(bg, glow(0xeef8e9, 0.8), bx1 - bx0 - 0.16, 0.012, 0.018,
+        (bx0 + bx1) / 2, ty + 0.28, bz - 0.21, { cast: false });
     }
     for (let r = 0; r < 4; r++) {
       const n = Math.max(3, Math.floor((bx1 - bx0 - 0.2) / 0.185));
@@ -187,7 +197,7 @@ export function buildInterior(root: THREE.Object3D, ctx: SceneCtx): void {
         w: 0.145, h: kind === 'bento' ? 0.06 : 0.14, d: kind === 'bento' ? 0.21 : 0.1, texOffset: r * 3 + 9,
       });
     }
-    const pop = new THREE.Mesh(planeGeo(bx1 - bx0, 0.3), decal(TX.popStripTex(), 0.96));
+    const pop = new THREE.Mesh(planeGeo(bx1 - bx0, 0.3), decal(TX.departmentTex('お弁当・おにぎり', 'FRESH FOOD · DAILY SELECTION'), 1));
     pop.position.set((bx0 + bx1) / 2, FY + 1.86, bz + 0.33);
     bg.add(pop);
     noOutline(pop);
@@ -322,6 +332,28 @@ export function buildInterior(root: THREE.Object3D, ctx: SceneCtx): void {
 
 /* ------------------------------------------------------------------ */
 
+/** Open shells keep merchandise visible instead of burying it inside a solid box. */
+function openCabinet(parent: THREE.Object3D, x0: number, x1: number, y: number,
+  z: number, h: number, d: number, mat: THREE.Material): void {
+  const mid = (x0 + x1) / 2;
+  addBox(parent, mat, x1 - x0, h, 0.045, mid, y, z - d / 2 + 0.0225);
+  for (const x of [x0 + 0.025, x1 - 0.025]) {
+    addBox(parent, mat, 0.05, h, d, x, y, z);
+  }
+  addBox(parent, mat, x1 - x0, 0.12, d, mid, y, z);
+  addBox(parent, mat, x1 - x0, 0.075, d, mid, y + h - 0.075, z);
+}
+
+function shelfTickets(parent: THREE.Object3D, w: number, x: number, y: number,
+  z: number, kind = 'snacks', ry = 0): void {
+  const tickets = new THREE.Mesh(planeGeo(w, 0.046), decal(TX.shelfTicketsTex(kind), 1));
+  tickets.name = 'shelf-price-tickets';
+  tickets.position.set(x, y + 0.006, z);
+  tickets.rotation.y = ry;
+  parent.add(tickets);
+  noOutline(tickets);
+}
+
 function buildWallShelf(
   parent: THREE.Object3D,
   products: ProductField,
@@ -353,6 +385,7 @@ function buildWallShelf(
       w: dims.w, h: dims.h, d: dims.d, texOffset: i * 2 + 6,
     });
     addBox(parent, toon(0xfbfaf4), span - 0.04, 0.05, 0.01, mid, ty + 0.015, z + depth / 2 - 0.01, { cast: false });
+    shelfTickets(parent, span - 0.05, mid, ty + 0.029, z + depth / 2);
   }
 }
 
@@ -369,6 +402,16 @@ function buildGondola(
   const midZ = (z0 + z1) / 2;
   const spanX = x1 - x0;
   const spanZ = z1 - z0;
+
+  // Slotted uprights and a recessed plinth make the shelving read as assembled metal.
+  for (const dz of [z0 + 0.04, z1 - 0.04]) {
+    addBox(g, metal, 0.07, h, 0.045, midX, y, dz, { cast: false });
+    for (let i = 0; i < 12; i++) for (const side of [-1, 1]) {
+      addBox(g, toon(0x707d86), 0.003, 0.025, 0.012,
+        midX + side * 0.037, y + 0.25 + i * 0.09, dz, { cast: false });
+    }
+  }
+  addBox(g, metal, spanX - 0.07, 0.13, spanZ - 0.06, midX, y + 0.04, midZ, { cast: false });
 
   addBox(g, toon(0xefece2), 0.055, h, spanZ, midX, y, midZ);
   const cap = addBox(g, toon(0xd4d8dd), spanX - 0.02, 0.16, spanZ - 0.02, midX, y + h, midZ, { cast: false });
@@ -387,6 +430,19 @@ function buildGondola(
   pop.rotation.y = -Math.PI / 2;
   g.add(pop);
   noOutline(pop);
+  const department = spec.name === 'gondola-2' ? ['お菓子', 'SWEETS & SNACKS']
+    : spec.name === 'gondola-3' ? ['パン・食品', 'BAKERY & DAILY FOOD'] : ['麺・スナック', 'NOODLES & CHIPS'];
+  const endSign = new THREE.Mesh(planeGeo(spanX - 0.05, 0.14),
+    decal(TX.departmentTex(department[0], department[1]), 1));
+  endSign.position.set(midX, y + h + 0.08, z1 + 0.012);
+  g.add(endSign); noOutline(endSign);
+  for (const side of [-1, 1]) {
+    const sideSign = new THREE.Mesh(planeGeo(Math.min(1.6, spanZ * 0.7) - 0.04, 0.18),
+      decal(TX.departmentTex(department[0], department[1]), 1));
+    sideSign.position.set(midX + side * (spanX / 2 - 0.003), capTop + 0.09, midZ);
+    sideSign.rotation.y = side * Math.PI / 2;
+    g.add(sideSign); noOutline(sideSign);
+  }
 
   const tiers = 4;
   for (let i = 0; i < tiers; i++) {
@@ -409,6 +465,10 @@ function buildGondola(
     for (const side of [-1, 1]) {
       addBox(g, toon(0xfbfaf4), 0.01, 0.048, spanZ - 0.04,
         midX + side * (spanX / 2 + 0.003), ty + 0.008, midZ, { cast: false });
+      shelfTickets(g, spanZ - 0.06, midX + side * (spanX / 2 + 0.01),
+        ty + 0.026, midZ, 'snacks', side * Math.PI / 2);
+      addBox(g, metal, 0.012, 0.014, spanZ - 0.07,
+        midX + side * (spanX / 2 - 0.035), ty + 0.07, midZ, { cast: false });
       for (let c = 0; c < cols; c++) {
         for (let row = 0; row < 2; row++) {
           const px = midX + side * (0.06 + row * (dims.d + 0.012));
@@ -456,6 +516,7 @@ function buildLowGondola(
   for (let i = 0; i < 3; i++) {
     const ty = y + 0.24 + i * 0.25;
     addBox(g, toon(0xfbfaf4), spanX - 0.04, 0.018, spanZ - 0.02, (x0 + x1) / 2, ty, midZ, { cast: false });
+    shelfTickets(g, spanX - 0.06, (x0 + x1) / 2, ty, z1 + 0.002);
     const tierKind: ProductKind = i === 1 ? 'chips' : i === 2 ? 'cup' : 'bread';
     const dims = tierKind === 'chips'
       ? { w: 0.13, h: 0.19, d: 0.07 }
@@ -567,7 +628,7 @@ function buildCounter(parent: THREE.Object3D, products: ProductField): void {
 
   /* ---- 收银机（放在靠门的一端，最显眼） ---- */
   const posX = x1 - 0.62;
-  const pos = group(g, posX, topY, zc);
+  const pos = group(g, posX, topY, zc, 'checkout-register');
   // 底座
   addBox(pos, toon(0x2a303a), 0.34, 0.1, 0.3, 0, 0, 0, { r: 0.015 });
   // 机身
@@ -591,38 +652,54 @@ function buildCounter(parent: THREE.Object3D, products: ProductField): void {
   custStand.add(cust);
   noOutline(cust);
 
+  // Cash drawer, receipt printer, contactless terminal and the coin tray.
+  addBox(pos, toon(0x687681), 0.27, 0.012, 0.012, 0, 0.055, 0.157, { cast: false });
+  addBox(pos, toon(0xbcc5c8), 0.07, 0.015, 0.012, 0, 0.06, 0.164, { cast: false });
+  const printer = group(g, posX + 0.27, topY, zc - 0.02, 'receipt-printer');
+  addBox(printer, darkTrim, 0.15, 0.14, 0.19, 0, 0, 0, { r: 0.012 });
+  addBox(printer, toon(0x171f27), 0.1, 0.014, 0.012, 0, 0.09, 0.1, { cast: false });
+  addBox(printer, toon(0xf8f3df), 0.075, 0.07, 0.005, 0, 0.09, 0.108, { rz: 0.09, cast: false });
+  const terminal = group(g, posX + 0.35, topY, zc + 0.22, 'payment-terminal');
+  addBox(terminal, darkTrim, 0.12, 0.06, 0.17, 0, 0, 0, { r: 0.012 });
+  const lcd = addMesh(terminal, planeGeo(0.085, 0.055), glow(0x8fbfc1, 0.7), 0, 0.065, -0.025);
+  lcd.rotation.x = -Math.PI / 2; noOutline(lcd);
+  for (let k = 0; k < 9; k++) addBox(terminal, toon(k === 8 ? 0x74a881 : 0xc0c7c4),
+    0.018, 0.006, 0.012, -0.027 + k % 3 * 0.027, 0.06, 0.023 + Math.floor(k / 3) * 0.019, { cast: false });
+  addBox(g, toon(0x456677), 0.2, 0.018, 0.12, posX - 0.23, topY + 0.002, zc + 0.22, { r: 0.015 });
+  addBox(g, toon(0x243d4c), 0.16, 0.008, 0.08, posX - 0.23, topY + 0.02, zc + 0.22, { r: 0.01, cast: false });
+
   /* ---- 关东煮 ---- */
   const odenX = posX - 0.78;
-  const oden = group(g, odenX, topY, zc);
-  addBox(oden, toon(0x9aa1aa), 0.46, 0.2, 0.44, 0, 0, 0, { r: 0.025 });
-  addBox(oden, toon(0x2f3b48), 0.42, 0.022, 0.4, 0, 0.19, 0, { cast: false });
+  const oden = group(g, odenX, topY, zc, 'oden-warmer');
+  addBox(oden, toon(0x9aa1aa), 0.46, 0.12, 0.44, 0, 0, 0, { r: 0.015 });
+  for (const x of [-0.218, 0.218]) addBox(oden, toon(0xb2b9c2), 0.024, 0.085, 0.44, x, 0.12, 0, { cast: false });
+  for (const z of [-0.208, 0.208]) addBox(oden, toon(0xb2b9c2), 0.41, 0.085, 0.024, 0, 0.12, z, { cast: false });
   const broth = new THREE.Mesh(planeGeo(0.4, 0.38), toon(0xc29a58));
   broth.rotation.x = -Math.PI / 2;
-  broth.position.set(0, 0.197, 0);
+  broth.position.set(0, 0.17, 0);
   oden.add(broth);
   // 隔断
   for (let i = 0; i < 3; i++) {
-    addBox(oden, toon(0xb2b9c2), 0.006, 0.06, 0.38, -0.12 + i * 0.12, 0.13, 0, { cast: false });
+    addBox(oden, toon(0xb2b9c2), 0.006, 0.055, 0.38, -0.12 + i * 0.12, 0.15, 0, { cast: false });
   }
-  addBox(oden, toon(0xb2b9c2), 0.4, 0.055, 0.006, 0, 0.13, 0, { cast: false });
+  addBox(oden, toon(0xb2b9c2), 0.4, 0.055, 0.006, 0, 0.15, 0, { cast: false });
   // 串
   const odenColors = [0xd9c08a, 0xd8a45a, 0xb98b4f, 0xe2d2a8, 0xcaa46a, 0xd9b47a, 0xc5b48a, 0xd8b878];
   for (let i = 0; i < 8; i++) {
     addCyl(oden, toon(odenColors[i]), 0.03, 0.03, 0.07,
-      -0.13 + (i % 4) * 0.09, 0.135, -0.085 + Math.floor(i / 4) * 0.17, { seg: 8 });
+      -0.16 + (i % 4) * 0.11, 0.17, -0.085 + Math.floor(i / 4) * 0.17, { seg: 10 });
   }
   // 关东煮价签牌已移除。
   // 原先是两块悬空的薄板（米色牌 + 红色条），靠 z=-0.2 挂在锅沿外侧，
   // 但锅体前沿在 z=+0.22，牌面从锅沿飘出去约 4cm 且没有任何支撑，
   // 从街上隔着玻璃看就是"咖啡机左边悬着一块米黄色方块"。
   // 这个尺度下价签的信息量极低，远不如让锅体本身干净。
-  const odenGlow = new THREE.PointLight(0xffc98a, 1.7, 1.8, 2);
-  odenGlow.position.set(odenX, topY + 0.26, zc + 0.2);
-  oden.add(odenGlow);
+  addBox(oden, toon(0x364854), 0.16, 0.04, 0.008, 0, 0.04, 0.223, { cast: false });
+  addBox(oden, glow(0xdfa769, 0.75), 0.045, 0.018, 0.009, -0.03, 0.05, 0.228, { cast: false });
 
   /* ---- 咖啡机 ---- */
   const coffeeX = odenX - 0.72;
-  const coffee = group(g, coffeeX, topY, zc);
+  const coffee = group(g, coffeeX, topY, zc, 'coffee-machine');
   addBox(coffee, toon(0x2a303a), 0.42, 0.62, 0.4, 0, 0, 0, { r: 0.02 });
   const front = new THREE.Mesh(planeGeo(0.38, 0.54), decal(TX.coffeeMachineTex(), 1));
   front.position.set(0, 0.3, 0.202);
@@ -632,26 +709,41 @@ function buildCounter(parent: THREE.Object3D, products: ProductField): void {
   for (let i = 0; i < 3; i++) {
     addCyl(coffee, toon(0xf4f0e4), 0.03, 0.025, 0.08, -0.12 + i * 0.12, 0.66, 0.06, { seg: 8 });
   }
+  addBox(coffee, toon(0x121d27), 0.32, 0.035, 0.13, 0, 0.04, 0.235, { cast: false });
+  for (let i = 0; i < 6; i++) addBox(coffee, toon(0x8c9da3), 0.013, 0.006, 0.1,
+    -0.1 + i * 0.04, 0.075, 0.235, { cast: false });
+  for (const x of [-0.075, 0.075]) {
+    addCyl(coffee, toon(0xa6b6bb), 0.012, 0.012, 0.07, x, 0.3, 0.235, { seg: 8 });
+    addCyl(coffee, toon(0xf4e9d4), 0.035, 0.025, 0.09, x, 0.08, 0.25, { seg: 12 });
+    addCyl(coffee, toon(0x503723), 0.03, 0.03, 0.003, x, 0.17, 0.25, { seg: 12 });
+  }
 
   /* ---- 热食柜 ---- */
   const hotX = coffeeX - 0.68;
-  const hot = group(g, hotX, topY, zc);
-  const hotBody = addBox(hot, toon(0x363d4a), 0.4, 0.42, 0.4, 0, 0, 0, { r: 0.02 });
-  hotBody.name = 'hot-case-body';
-  // 发光陈列面 / 玻璃都要比柜体正面再往外 1cm 左右：
-  // 旧版贴在 z=0.19/0.20，和柜体正面（0.20）共面，会 z-fighting。
-  addBox(hot, glow(0xffd58a, 0.9), 0.32, 0.26, 0.02, 0, 0.07, 0.205, { cast: false });
-  for (let i = 0; i < 3; i++) {
-    addCyl(hot, toon(0xd9a15c), 0.04, 0.04, 0.05, -0.1 + i * 0.1, 0.2, 0.02, { seg: 8 });
+  const hot = group(g, hotX, topY, zc, 'hot-food-case');
+  openCabinet(hot, -0.2, 0.2, 0, 0, 0.46, 0.4, toon(0x363d4a));
+  addBox(hot, glow(0xffd58a, 0.7), 0.3, 0.012, 0.28, 0, 0.375, 0, { cast: false });
+  for (const x of [-0.18, 0.18]) addBox(hot, toon(0x77858b), 0.018, 0.36, 0.018, x, 0.08, 0.2, { cast: false });
+  for (let tier = 0; tier < 2; tier++) {
+    const ty = 0.13 + tier * 0.13;
+    addBox(hot, toon(0xa5a59a), 0.33, 0.012, 0.32, 0, ty, 0.01, { cast: false });
+    for (let i = 0; i < 3; i++) {
+      const snack = addMesh(hot, sphereGeo(1, 10), toon(tier ? 0xc88a46 : 0xe3b76d), -0.1 + i * 0.1, ty + 0.034, 0.06);
+      snack.scale.set(0.041, 0.022, 0.058); snack.castShadow = false;
+    }
   }
-  addBox(hot, toon(0xc8d4e0, { transparent: true, opacity: 0.18, side: THREE.DoubleSide }),
-    0.34, 0.24, 0.02, 0, 0.18, 0.215, { cast: false });
+  const hotGlass = new THREE.Mesh(planeGeo(0.34, 0.3), toon(0xe2e9e6,
+    { transparent: true, opacity: 0.09, side: THREE.DoubleSide }));
+  hotGlass.position.set(0, 0.245, 0.211); hot.add(hotGlass); noOutline(hotGlass);
 
   /* ---- 柜台后方：背柜（香烟 + 咖啡杯） ---- */
   const backZ = zc - 0.78;
   const backX0 = x0 + 0.1;
   const backX1 = x1 - 0.1;
-  addBox(g, toon(0xd8d4c8), backX1 - backX0, 1.5, 0.3, (backX0 + backX1) / 2, FY, backZ);
+  const backCabinet = group(g, 0, 0, 0, 'checkout-back-cabinet');
+  openCabinet(backCabinet, backX0, backX1, FY, backZ, 1.5, 0.3, toon(0xd8d4c8));
+  addBox(backCabinet, toon(0xc3c3b8), backX1 - backX0 - 0.1, 0.48, 0.25,
+    (backX0 + backX1) / 2, FY + 0.1, backZ, { cast: false });
   // 香烟陈列：两排
   for (let i = 0; i < 2; i++) {
     const ty = FY + 0.62 + i * 0.3;
@@ -661,6 +753,13 @@ function buildCounter(parent: THREE.Object3D, products: ProductField): void {
       y: ty + 0.016, z: backZ + 0.02,
       w: 0.05, h: 0.085, d: 0.085, texOffset: i * 3,
     });
+  }
+  // Stacks of cups sit on their own shelf above the boxed stock.
+  addBox(backCabinet, toon(P.shelfMetal), backX1 - backX0 - 0.08, 0.018, 0.26,
+    (backX0 + backX1) / 2, FY + 1.16, backZ, { cast: false });
+  for (let i = 0; i < 7; i++) for (let j = 0; j < 4; j++) {
+    addCyl(backCabinet, toon(0xf2ebda), 0.035, 0.026, 0.065,
+      backX0 + 0.16 + i * 0.17, FY + 1.18 + j * 0.028, backZ + 0.025, { seg: 10, cast: false });
   }
   // 背柜灯带
   addBox(g, glow(0xf2f6ff, 0.75), backX1 - backX0 - 0.1, 0.03, 0.02,

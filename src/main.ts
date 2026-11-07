@@ -233,7 +233,13 @@ replayButton.className = 'opening-replay';
 replayButton.textContent = '↻ 重播开场';
 replayButton.hidden = opening.isRunning;
 replayButton.addEventListener('click', replayOpening);
-document.body.appendChild(replayButton);
+const sceneActions = document.createElement('div');
+sceneActions.className = 'scene-actions';
+sceneActions.setAttribute('role', 'group');
+sceneActions.setAttribute('aria-label', '场景操作');
+sceneActions.hidden = opening.isRunning;
+sceneActions.appendChild(replayButton);
+document.body.appendChild(sceneActions);
 
 /* ---------------- 樱花树参数面板 ---------------- */
 // 面板只通过点击樱花树打开；右上角按钮负责收起。
@@ -255,6 +261,19 @@ const soundPanel = createSoundPanel(document.body, sound, () => {
   vendingPanel.close();
 });
 soundPanel.setVisible(!opening.isRunning);
+const resetCameraButton = document.createElement('button');
+resetCameraButton.type = 'button';
+resetCameraButton.className = 'camera-reset';
+resetCameraButton.textContent = '⌂ 镜头归位';
+resetCameraButton.title = '回到初始全景视角';
+resetCameraButton.addEventListener('click', () => {
+  sakuraPanel.setOpen(false);
+  vendingPanel.close();
+  soundPanel.setOpen(false);
+  rig.reset();
+  sound.play('ui');
+});
+sceneActions.prepend(resetCameraButton);
 // Register future clickable objects here: every activation shares the same camera approach.
 const interactions = [
   ...world.street.vending.map((machine) => ({
@@ -365,6 +384,7 @@ function frame(): void {
   elapsed += dt;
   world.assembly.paused = opening.isRunning;
   replayButton.hidden = opening.isRunning;
+  sceneActions.hidden = opening.isRunning;
   soundPanel.setVisible(!opening.isRunning);
   sound.setActive(!opening.isRunning && world.assembly.finished);
   if (!bottleDrag.isActive() && !vendingPanel.isOpen() && !sakuraPanel.isOpen() && !soundPanel.isOpen()) rig.update(dt);

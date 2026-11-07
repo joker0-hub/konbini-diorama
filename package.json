@@ -17,6 +17,7 @@
     "check:ui": "node scripts/check-ui.mjs",
     "check:opening": "node scripts/check-opening.mjs",
     "check:interaction": "node scripts/check-interaction-focus.mjs",
+    "check:camera": "node scripts/check-camera-reset.mjs",
     "check:env": "node scripts/check-env.mjs",
     "check:snow": "node scripts/check-snow.mjs",
     "check:signal": "node scripts/check-signal.mjs",

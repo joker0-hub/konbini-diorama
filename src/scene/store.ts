@@ -338,9 +338,7 @@ export function buildStore(root: THREE.Object3D, ctx: SceneCtx): StoreParts {
   for (let i = 0; i < 8; i++) {
     addBox(g, toon(0xc6cad1), 0.018, 0.5, 0.022, S.x1 + 0.29, S.glassTop + 0.22, S.z0 + 0.7 + i * 0.85, { cast: false });
   }
-  for (const dz of [S.z0 + 0.3, S.z1 - 0.3]) {
-    addCyl(g, toon(0x969da6), 0.05, 0.05, S.roofY + 0.25, S.x1 + 0.26, L.curb, dz, { seg: 10 });
-  }
+  // 侧立面两端的细长灰柱移除，保持从地面到招牌的侧窗视线通透。
   for (let i = 0; i < 4; i++) {
     addBox(g, glow(0xfff0cf, 0.95), 0.025, 0.045, 1.0, S.x1 + 0.31, 2.66, S.z0 + 1.1 + i * 1.6, { cast: false });
   }

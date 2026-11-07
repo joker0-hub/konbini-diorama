@@ -20,11 +20,20 @@ body {
   cursor: grabbing;
 }
 
-.opening-replay {
+.scene-actions {
   position: fixed;
   top: max(16px, env(safe-area-inset-top));
   right: calc(max(16px, env(safe-area-inset-right)) + 54px);
   z-index: 15;
+  display: flex;
+  gap: 8px;
+  max-width: calc(100vw - 86px);
+}
+
+.scene-actions[hidden] { display: none; }
+
+.opening-replay,
+.camera-reset {
   min-height: 44px;
   padding: 0 16px;
   border: 1px solid rgba(202, 220, 241, 0.25);
@@ -36,8 +45,13 @@ body {
 }
 
 .opening-replay[hidden] { display: none; }
-.opening-replay:hover { background: #26354a; }
-.opening-replay:focus-visible { outline: 2px solid #b8d8ff; outline-offset: 3px; }
+.opening-replay:hover, .camera-reset:hover { background: #26354a; }
+.opening-replay:focus-visible, .camera-reset:focus-visible { outline: 2px solid #b8d8ff; outline-offset: 3px; }
+
+@media (max-width: 380px) {
+  .scene-actions { gap: 6px; }
+  .scene-actions button { padding: 0 10px; }
+}
 
 /* Sakura shares the centered dialog shell with the vending purchase panel. */
 .interaction-panel.sakura-panel {
