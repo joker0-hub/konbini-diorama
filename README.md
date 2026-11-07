@@ -40,7 +40,7 @@ npm run dev
 
 ## 许可
 
-项目声明使用 MIT 许可；仓库目前尚未附独立的 `LICENSE` 文件。
+本项目采用 [MIT 许可](LICENSE)，完整许可文本见仓库根目录的 `LICENSE` 文件。
 
 <div align="center">
 <sub>Built with Three.js · TypeScript · Vite · cannon-es — 所有风景都是代码。</sub>
