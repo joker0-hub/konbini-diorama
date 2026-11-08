@@ -190,7 +190,17 @@ export class ProductField {
         mesh.setMatrixAt(i, m);
       });
       mesh.instanceMatrix.needsUpdate = true;
-      parent.add(mesh);
+      const close = new THREE.Group();
+      close.add(mesh);
+      const distant = new THREE.Group();
+      const lowBody = new THREE.InstancedMesh(productGeometry(kind, true), mat, items.length);
+      lowBody.name = `products-${kind}-${tex}-distant`;
+      // Matrices are immutable after construction, so both levels can share
+      // their GPU instance buffer instead of uploading identical data twice.
+      lowBody.instanceMatrix = mesh.instanceMatrix;
+      lowBody.castShadow = mesh.castShadow;
+      lowBody.receiveShadow = true;
+      distant.add(lowBody);
       // Shared instanced details keep the denser models inexpensive to draw.
       const detailGeo = productDetails(kind, tex);
       if (detailGeo) {
@@ -201,8 +211,28 @@ export class ProductField {
         detail.instanceMatrix.copy(mesh.instanceMatrix);
         detail.castShadow = opts.cast ?? false;
         detail.receiveShadow = true;
-        parent.add(detail);
+        close.add(detail);
+        const lowDetail = new THREE.InstancedMesh(productDetails(kind, tex, true)!, detail.material, items.length);
+        lowDetail.name = `product-details-${kind}-${tex}-distant`;
+        lowDetail.instanceMatrix = detail.instanceMatrix;
+        lowDetail.castShadow = detail.castShadow;
+        lowDetail.receiveShadow = true;
+        distant.add(lowDetail);
       }
+      // Recenter each batch for LOD's distance calculation. The instance
+      // translations remain in shelf coordinates, compensated on both groups.
+      mesh.computeBoundingSphere();
+      const center = mesh.boundingSphere!.center;
+      const lod = new THREE.LOD();
+      lod.name = `product-lod-${kind}-${tex}`;
+      lod.position.copy(center);
+      close.position.copy(center).negate();
+      distant.position.copy(close.position);
+      lod.addLevel(close, 0);
+      // 14m is a conservative switch for the default 28-degree camera;
+      // hysteresis prevents flicker while orbiting across that boundary.
+      lod.addLevel(distant, 14, 0.12);
+      parent.add(lod);
     }
   }
 }

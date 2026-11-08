@@ -1,6 +1,6 @@
 /** Patchy, shallow snow: coverage and depth grow together; exposed travel paths stay readable. */
 import * as THREE from 'three';
-import { L } from './layout';
+import { CANOPY, L } from './layout';
 import { toon, RAMP_SOFT } from '../core/materials';
 import { snowSurfaceTex } from '../core/snowTex';
 
@@ -128,9 +128,9 @@ export function buildSnow(extraSurfaces: SnowPatch[] = []): SnowHandles {
   for (const x of [S.x0 - 0.17, S.x1 + 0.17]) add({ x0: x - 0.065, x1: x + 0.065, z0: S.z0 - 0.10, z1: S.z1 + 0.10, y: roofY + 0.423, scale: 0.7 });
   for (const x of [-3.9, -1.9]) add({ x0: x - 0.54, x1: x + 0.54, z0: -5.62, z1: -4.98, y: roofY + 0.758, scale: 0.8 });
   add({ x0: 0.26, x1: 1.54, z0: -6.34, z1: -5.06, y: roofY + 1.193, scale: 0.8 });
-  const canX = (L.door.x0 + L.door.x1) / 2;
-  const canW = Math.min(2.3, 2 * (S.x1 - 0.16 - canX));
-  add({ x0: canX - canW / 2 + 0.02, x1: canX + canW / 2 - 0.02, z0: S.z1 + 0.32, z1: S.z1 + 1.38, y: S.glassTop - 0.22 + 0.003, scale: 0.8, name: 'snow-canopy' });
+  add({ x0: CANOPY.x - CANOPY.w / 2 + 0.02, x1: CANOPY.x + CANOPY.w / 2 - 0.02,
+    z0: CANOPY.z - CANOPY.d / 2 + 0.02, z1: CANOPY.z + CANOPY.d / 2 - 0.02,
+    y: CANOPY.top + 0.003, scale: 0.8, name: 'snow-canopy' });
   const N = L.neighbor;
   add({ x0: N.x0, x1: N.x1, z0: N.z0, z1: N.z1, y: N.h + 0.403 });
   extraSurfaces.forEach(add);

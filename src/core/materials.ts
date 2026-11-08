@@ -143,6 +143,7 @@ export function glass(): THREE.MeshBasicMaterial {
     opacity: 0.1,
     depthWrite: false,
     side: THREE.DoubleSide,
+    forceSinglePass: true,
     toneMapped: false,
   });
   cache.set(key, m);
@@ -162,6 +163,8 @@ export function decal(map: THREE.Texture, opacity = 1, color = 0xffffff): THREE.
     depthWrite: false,
     toneMapped: false,
     side: THREE.DoubleSide,
+    // Labels are flat: drawing separate back/front passes changes no pixels.
+    forceSinglePass: true,
     // 关键：贴花完全依赖 alpha 通道。
     // 若保持不透明混合，Canvas 里"没画"的区域（alpha=0 但 RGB=0）
     // 会把底下的东西压成一片灰 —— 玻璃磨砂带、招牌贴纸都会发灰。
@@ -187,6 +190,7 @@ export function additive(map: THREE.Texture | null, color = 0xffffff, opacity = 
     depthWrite: false,
     toneMapped: false,
     side: THREE.DoubleSide,
+    forceSinglePass: true,
     fog: false,
   });
   cache.set(key, m);
@@ -203,6 +207,7 @@ export function additiveClone(map: THREE.Texture | null, color = 0xffffff, opaci
     depthWrite: false,
     toneMapped: false,
     side: THREE.DoubleSide,
+    forceSinglePass: true,
     fog: false,
   });
 }

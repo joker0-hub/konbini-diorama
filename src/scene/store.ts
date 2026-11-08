@@ -8,11 +8,13 @@
 
 import * as THREE from 'three';
 import { P } from '../core/palette';
-import { addBox, addCyl, addMesh, group, noOutline, planeGeo, strut } from '../core/geom';
-import { additiveClone, decal, glass, glow, glowSprite, radialGlowTex, toon } from '../core/materials';
+import { addBox, addCyl, addMesh, group, noOutline, planeGeo } from '../core/geom';
+import { decal, glass, glow, toon } from '../core/materials';
 import * as TX from '../core/textures';
 import { L } from './layout';
 import type { SceneCtx } from './base';
+import { buildRoofDetails, buildStoreExterior } from './store-exterior';
+import { buildEntranceCanopy, buildStoreSignage } from './store-signage';
 
 const S = L.store;
 export const STORE = S;
@@ -65,8 +67,9 @@ export function buildStore(root: THREE.Object3D, ctx: SceneCtx): StoreParts {
   ceil.name = 'store-ceiling';
 
   const h = S.ceilY - S.floorY;
-  addBox(g, wall, S.x1 - S.x0, h, S.wallT, (S.x0 + S.x1) / 2, S.floorY, S.z0 + S.wallT / 2);
-  addBox(g, wall, S.wallT, h, S.z1 - S.z0, S.x0 + S.wallT / 2, S.floorY, (S.z0 + S.z1) / 2);
+  const outerH = S.roofY - S.floorY;
+  addBox(g, wall, S.x1 - S.x0, outerH, S.wallT, (S.x0 + S.x1) / 2, S.floorY, S.z0 + S.wallT / 2, { name: 'store-back-wall' });
+  addBox(g, wall, S.wallT, outerH, S.z1 - S.z0, S.x0 + S.wallT / 2, S.floorY, (S.z0 + S.z1) / 2, { name: 'store-alley-wall' });
   addBox(g, interiorWall, S.x1 - S.x0 - 0.04, h, 0.02, (S.x0 + S.x1) / 2, S.floorY, S.z0 + S.wallT + 0.012, { cast: false });
   addBox(g, interiorWall, 0.02, h, S.z1 - S.z0 - 0.04, S.x0 + S.wallT + 0.012, S.floorY, (S.z0 + S.z1) / 2, { cast: false });
 
@@ -117,139 +120,10 @@ export function buildStore(root: THREE.Object3D, ctx: SceneCtx): StoreParts {
   g.add(filmSide);
   noOutline(filmSide);
 
-  /* ============ 招牌檐口 ============ */
-  const signMats: THREE.MeshBasicMaterial[] = [];
-  const fasciaH = S.fasciaTop - S.glassTop;
-
-  addBox(g, cream, S.x1 - S.x0 + 0.42, fasciaH + 0.2, 0.42, (S.x0 + S.x1) / 2, S.glassTop - 0.1, S.z1 + 0.07);
-  addBox(g, cream, 0.42, fasciaH + 0.2, S.z1 - S.z0 + 0.42, S.x1 + 0.07, S.glassTop - 0.1, (S.z0 + S.z1) / 2);
-
-  const signFace = new THREE.Mesh(planeGeo(S.x1 - S.x0 + 0.32, fasciaH), decal(TX.storeSignTex(), 1));
-  signFace.position.set((S.x0 + S.x1) / 2, S.glassTop + fasciaH / 2, S.z1 + 0.29);
-  signFace.renderOrder = 9;
-  g.add(signFace);
-  noOutline(signFace);
-
-  // 招牌光晕：只做招牌自身的溢光。
-  // 平面尺寸必须贴着招牌走 —— 若比招牌高出一大截，
-  // 径向渐变会在招牌上方画出一个明显的半圆"穹顶"。
-  const haloW = S.x1 - S.x0 + 1.6;
-  const haloH = fasciaH + 0.9;
-  const signHalo = new THREE.Mesh(
-    planeGeo(haloW, haloH),
-    additiveClone(glowSprite(haloW / haloH), 0xfff2d4, 0.3),
-  );
-  signHalo.position.set((S.x0 + S.x1) / 2, S.glassTop + fasciaH / 2, S.z1 + 0.2);
-  signHalo.renderOrder = 8;
-  g.add(signHalo);
-  noOutline(signHalo);
-  signMats.push(signHalo.material as THREE.MeshBasicMaterial);
-
-  const sideSign = new THREE.Mesh(planeGeo(S.z1 - S.z0, fasciaH), decal(TX.storeSignSmallTex(), 1));
-  sideSign.position.set(S.x1 + 0.29, S.glassTop + fasciaH / 2, (S.z0 + S.z1) / 2);
-  sideSign.rotation.y = Math.PI / 2;
-  sideSign.renderOrder = 9;
-  g.add(sideSign);
-  noOutline(sideSign);
-
-  const sideHaloW = S.z1 - S.z0 + 1.2;
-  const sideHaloH = fasciaH + 0.9;
-  const sideHalo = new THREE.Mesh(
-    planeGeo(sideHaloW, sideHaloH),
-    additiveClone(glowSprite(sideHaloW / sideHaloH), 0xfff2d4, 0.26),
-  );
-  sideHalo.position.set(S.x1 + 0.19, S.glassTop + fasciaH / 2, (S.z0 + S.z1) / 2);
-  sideHalo.rotation.y = Math.PI / 2;
-  sideHalo.renderOrder = 8;
-  g.add(sideHalo);
-  noOutline(sideHalo);
-  signMats.push(sideHalo.material as THREE.MeshBasicMaterial);
-
-  /* ============ 转角竖招牌 ============ */
-  // 位置：从店角向外让出 0.58m，并把招牌整体抬高。
-  // 旧位置 (S.x1+0.4, 2.1, S.z1+0.4) 的招牌会：
-  //   1) 背后插进侧面/正面的招牌檐口（x/z 都落在 fascia 的包围盒里）；
-  //   2) 底边 0.85m 挂在玻璃前，下面露出大片店内玻璃，像"招牌下半截是透明的"。
-  // 现在底边 1.35m、顶边 3.85m，正好挂在檐口高度内，并用两根短支架连到店角。
-  const vert = group(g, S.x1 + 0.58, 2.6, S.z1 + 0.58, 'vertical-sign');
-  // addBox 的 y 是"底边"，而 face plane 的原点在几何中心。
-  // 这里必须把箱体底边放到 -1.25，让箱体与四面贴图共心；
-  // 旧版写成 yBottom=0，箱体整体比贴图高 1.25m，贴图下半截直接悬在玻璃前，
-  // 看起来就是"招牌下面有一截透明的"。
-  addBox(vert, cream, 0.5, 2.5, 0.5, 0, -1.25, 0, { r: 0.04 });
-  for (const [sx, sz, ry] of [
-    [0.26, 0, Math.PI / 2],
-    [0, 0.26, 0],
-    [-0.26, 0, -Math.PI / 2],
-    [0, -0.26, Math.PI],
-  ] as [number, number, number][]) {
-    const face = new THREE.Mesh(planeGeo(0.44, 2.4), decal(TX.verticalSignTex(), 1));
-    face.position.set(sx, 0, sz);
-    face.rotation.y = ry;
-    face.renderOrder = 2;
-    vert.add(face);
-    noOutline(face);
-  }
-  // 上下金属收边：让招牌是一个封口的实体，而不是一块悬空的发光板
-  addBox(vert, toon(0x2a313b), 0.54, 0.05, 0.54, 0, -1.3, 0, { cast: false });
-  addBox(vert, toon(0x2a313b), 0.54, 0.05, 0.54, 0, 1.25, 0, { cast: false });
-
-  // 招牌和店角之间的两根支架：旧招牌是"悬空的"，现在从檐口/角柱伸出来。
-  const signBracket = toon(0x3c434f);
-  for (const by of [-0.75, 0.65]) {
-    const bracket = strut(
-      g,
-      signBracket,
-      [S.x1 + 0.03, 2.6 + by, S.z1 + 0.03],
-      [S.x1 + 0.34, 2.6 + by, S.z1 + 0.34],
-      0.045,
-      true,
-    );
-    bracket.name = by > 0 ? 'sign-bracket-top' : 'sign-bracket-bottom';
-  }
-
-  const vHalo = new THREE.Mesh(planeGeo(1.8, 3.0), additiveClone(radialGlowTex(), 0xffe9c4, 0.22));
-  vHalo.position.set(0.08, 0, 0.32);
-  vHalo.renderOrder = 8;
-  vert.add(vHalo);
-  noOutline(vHalo);
-  signMats.push(vHalo.material as THREE.MeshBasicMaterial);
-
-  /* ============ 入口雨棚 ============ */
-  const canopy = group(g, 0, 0, 0, 'canopy');
+  /* ============ 灯箱、广告与入口雨棚 ============ */
+  const signMats = buildStoreSignage(g);
+  buildEntranceCanopy(g);
   const canX = (DOOR.x0 + DOOR.x1) / 2;
-  // 宽度必须由"到店角还剩多少"反推，不能写死。
-  // 写死 3.4 时雨棚右端到 x=2.65，而店角在 2.2、转角竖招牌占 2.35..2.85，
-  // 于是雨棚既戳出立面又埋进竖招牌里。
-  const canW = Math.min(2.3, 2 * (S.x1 - 0.16 - canX));
-  const canZ = S.z1 + 0.85;   // 中心 z
-  const canD = 1.1;
-  const canFront = canZ + canD / 2;          // 前沿 z
-  const canBack = canZ - canD / 2;           // 后沿 z（贴在招牌下沿）
-  // 高度：整个雨棚必须落在招牌板底面（glassTop - 0.1）以下，
-  // 否则会和招牌实体相交，形成插进招牌的"半截板"。
-  const canTop = S.glassTop - 0.22;
-  const canopyTop = toon(0x9c937f);
-  const canopyUnder = toon(0x5d5445);
-  addBox(canopy, canopyTop, canW, 0.055, canD, canX, canTop - 0.055, canZ);
-  // 底面内檐
-  addBox(canopy, canopyUnder, canW - 0.1, 0.03, canD - 0.08, canX, canTop - 0.085, canZ, { cast: false });
-  // 灯槽：底面靠外沿的一条暖光
-  addBox(canopy, glow(0xffe9c0, 0.85), canW - 0.45, 0.012, 0.09,
-    canX, canTop - 0.09, canFront - 0.08, { cast: false });
-  // 前沿翻边
-  addBox(canopy, toon(0x8a806c), canW, 0.09, 0.045, canX, canTop - 0.1, canFront);
-  addBox(canopy, canopyTop, 0.03, 0.1, canD, canX - canW / 2, canTop - 0.085, canZ);
-  addBox(canopy, canopyTop, 0.03, 0.1, canD, canX + canW / 2, canTop - 0.085, canZ);
-  // 拉杆：从雨棚前沿斜拉到招牌下沿。
-  // 起点必须在雨棚底面以下、终点必须在招牌板前表面（z1+0.28）之外，
-  // 否则杆件会从招牌里穿出来 —— 这正是之前"斜撑插进招牌"的原因。
-  for (const sx of [canX - canW / 2 + 0.12, canX + canW / 2 - 0.12]) {
-    strut(canopy, trim,
-      [sx, canTop - 0.015, canFront - 0.07],
-      [sx, S.glassTop - 0.06, S.z1 + 0.29],
-      0.026);
-  }
 
   /* ============ 自动门 ============ */
   // 门的原点必须落在门洞中心（canX），不是场景原点。
@@ -333,6 +207,8 @@ export function buildStore(root: THREE.Object3D, ctx: SceneCtx): StoreParts {
   for (let i = 0; i < 3; i++) addBox(roof, toon(0x6b7280), 0.72 - i * 0.16, 0.022, 0.022, -4.9, rY + 1.5 + i * 0.22, -5.9);
   // 太阳能板
   addBox(roof, toon(0x28374c), 1.7, 0.055, 1.0, 0.1, rY + 0.02, -3.6, { cast: false });
+  buildRoofDetails(roof);
+  buildStoreExterior(g);
 
   /* ============ 侧墙细节 ============ */
   for (let i = 0; i < 8; i++) {

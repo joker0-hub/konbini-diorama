@@ -3,13 +3,13 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { ProductKind } from './products';
 
-const bodies = new Map<ProductKind, THREE.BufferGeometry>();
+const bodies = new Map<string, THREE.BufferGeometry>();
 const details = new Map<string, THREE.BufferGeometry>();
-const rounded = (w: number, h: number, d: number, radius = 0.04) =>
-  new RoundedBoxGeometry(w, h, d, 2, radius);
+const rounded = (w: number, h: number, d: number, radius = 0.04, lowDetail = false) =>
+  new RoundedBoxGeometry(w, h, d, lowDetail ? 1 : 2, radius);
 
-function lathe(points: number[][]): THREE.BufferGeometry {
-  const geo = new THREE.LatheGeometry(points.map(([r, y]) => new THREE.Vector2(r, y)), 20);
+function lathe(points: number[][], lowDetail: boolean): THREE.BufferGeometry {
+  const geo = new THREE.LatheGeometry(points.map(([r, y]) => new THREE.Vector2(r, y)), lowDetail ? 10 : 20);
   const uv = geo.getAttribute('uv');
   const position = geo.getAttribute('position');
   // Map by physical height so shoulder profile points do not stretch the label.
@@ -18,24 +18,25 @@ function lathe(points: number[][]): THREE.BufferGeometry {
 }
 
 /** Unit envelopes: bottom -0.5, top +0.5; actual dimensions come from ProductSpec. */
-export function productGeometry(kind: ProductKind): THREE.BufferGeometry {
-  const hit = bodies.get(kind);
+export function productGeometry(kind: ProductKind, lowDetail = false): THREE.BufferGeometry {
+  const key = `${kind}:${lowDetail}`;
+  const hit = bodies.get(key);
   if (hit) return hit;
   let geo: THREE.BufferGeometry;
   switch (kind) {
     case 'bottle':
       geo = lathe([[0,-0.5],[0.35,-0.5],[0.46,-0.47],[0.49,-0.4],
-        [0.49,0.14],[0.46,0.23],[0.25,0.34],[0.19,0.37],[0.19,0.44],[0,0.44]]);
+        [0.49,0.14],[0.46,0.23],[0.25,0.34],[0.19,0.37],[0.19,0.44],[0,0.44]], lowDetail);
       break;
     case 'can':
       geo = lathe([[0,-0.5],[0.4,-0.5],[0.47,-0.46],[0.49,-0.4],
-        [0.49,0.39],[0.45,0.45],[0.44,0.48],[0,0.48]]);
+        [0.49,0.39],[0.45,0.45],[0.44,0.48],[0,0.48]], lowDetail);
       break;
     case 'cup':
-      geo = lathe([[0,-0.5],[0.33,-0.5],[0.37,-0.46],[0.47,0.4],[0.49,0.44],[0,0.44]]);
+      geo = lathe([[0,-0.5],[0.33,-0.5],[0.37,-0.46],[0.47,0.4],[0.49,0.44],[0,0.44]], lowDetail);
       break;
     case 'chips': {
-      geo = rounded(1, 1, 1, 0.16);
+      geo = rounded(1, 1, 1, 0.16, lowDetail);
       const pos = geo.getAttribute('position');
       for (let i = 0; i < pos.count; i++) {
         const y = pos.getY(i);
@@ -56,15 +57,15 @@ export function productGeometry(kind: ProductKind): THREE.BufferGeometry {
       else geo.translate(0, kind === 'onigiri' ? -0.16 : -0.18, 0.505);
       break;
     case 'carton': geo = new THREE.BoxGeometry(1, 0.8, 1).translate(0, -0.1, 0); break;
-    default: geo = rounded(1, 1, 1, 0.035);
+    default: geo = lowDetail ? new THREE.BoxGeometry(1, 1, 1) : rounded(1, 1, 1, 0.035);
   }
-  bodies.set(kind, geo);
+  bodies.set(key, geo);
   return geo;
 }
 
-export function productDetails(kind: ProductKind, variant: number): THREE.BufferGeometry | null {
+export function productDetails(kind: ProductKind, variant: number, lowDetail = false): THREE.BufferGeometry | null {
   if (kind === 'box') return null;
-  const key = `${kind}:${variant}`;
+  const key = `${kind}:${variant}:${lowDetail}`;
   const hit = details.get(key);
   if (hit) return hit;
   const parts: THREE.BufferGeometry[] = [];
@@ -82,7 +83,7 @@ export function productDetails(kind: ProductKind, variant: number): THREE.Buffer
     part(new THREE.BoxGeometry(w, h, d), color, x, y, z);
   }
   function disc(r: number, h: number, color: number, y: number) {
-    part(new THREE.CylinderGeometry(r, r, h, 20), color, 0, y);
+    part(new THREE.CylinderGeometry(r, r, h, lowDetail ? 10 : 20), color, 0, y);
   }
   function prism(color: number, depth: number, y = 0, scale = 1, z = 0) {
     const shape = new THREE.Shape();
@@ -98,16 +99,16 @@ export function productDetails(kind: ProductKind, variant: number): THREE.Buffer
     const cap = [0x2f6bd8,0x3c7a3c,0xeee6d7][variant];
     disc(0.22, 0.08, cap, 0.46);
     disc(0.23, 0.018, cap, 0.405);
-    for (const y of [-0.39,-0.31,0.1])
+    for (const y of lowDetail ? [] : [-0.39,-0.31,0.1])
       part(new THREE.TorusGeometry(0.487,0.009,4,20).rotateX(Math.PI/2),0xc8d9d7,0,y);
-    for (let i=0;i<16;i++) {
+    for (let i=0;i<(lowDetail ? 0 : 16);i++) {
       const a=i*Math.PI/8;
       box(0.018,0.06,0.018,0xd7dce0,Math.cos(a)*0.216,0.462,Math.sin(a)*0.216);
     }
   } else if (kind === 'can') {
     disc(0.448,0.014,0xa7b1b6,0.474);
     disc(0.42,0.008,0xcfd4d5,0.484);
-    part(new THREE.TorusGeometry(0.443,0.016,5,20).rotateX(Math.PI/2),0xe2e5e4,0,0.48);
+    part(new THREE.TorusGeometry(0.443,0.016,lowDetail ? 3 : 5,lowDetail ? 10 : 20).rotateX(Math.PI/2),0xe2e5e4,0,0.48);
     box(0.12,0.012,0.19,0x505c63,0,0.495,0.13);
     part(new THREE.TorusGeometry(0.065,0.018,5,12).rotateX(Math.PI/2).scale(1,1,1.5),0xe7e8e5,0,0.498,-0.02);
   } else if (kind === 'cup') {
@@ -119,7 +120,8 @@ export function productDetails(kind: ProductKind, variant: number): THREE.Buffer
   } else if (kind === 'chips') {
     for (const y of [-0.475,0.475]) {
       box(0.94,0.045,0.12,[0x922e23,0x155a2e,0x183a7c,0x9a6408][variant],0,y);
-      for (let i=0;i<14;i++) box(0.012,0.035,0.012,0xe6c99b,-0.43+i*0.066,y,0.064);
+      const crimps = lowDetail ? 7 : 14;
+      for (let i=0;i<crimps;i++) box(0.012,0.035,0.012,0xe6c99b,-0.43+i*0.86/(crimps-1),y,0.064);
     }
   } else if (kind === 'onigiri') {
     prism(0xf3efda,0.82);
@@ -149,7 +151,7 @@ export function productDetails(kind: ProductKind, variant: number): THREE.Buffer
     }
     box(0.98,0.025,0.98,0xe4dfcf,0,-0.487);
   } else if (kind === 'bento') {
-    part(rounded(1,0.28,1,0.035),0x252d2a,0,-0.36);
+    part(rounded(1,0.28,1,0.035,lowDetail),0x252d2a,0,-0.36);
     box(0.96,0.13,0.94,0x161d1b,0,-0.18);
     box(0.46,0.39,0.78,0xf6f0d8,-0.22,0.02);
     box(0.025,0.35,0.84,0x333d32,0.04,-0.02);
@@ -167,7 +169,7 @@ export function productDetails(kind: ProductKind, variant: number): THREE.Buffer
     box(0.012,0.012,0.7,0xf2f6e9,-0.43,0.43);
   } else if (kind === 'bread') {
     box(0.98,0.03,0.98,0xe1d1ad,0,-0.48);
-    part(new THREE.SphereGeometry(1,20,12).scale(0.46,0.47,0.44),[0xd9b66d,0xa9652e,0xe3ba71][variant],0,-0.01);
+    part(new THREE.SphereGeometry(1,lowDetail ? 10 : 20,lowDetail ? 6 : 12).scale(0.46,0.47,0.44),[0xd9b66d,0xa9652e,0xe3ba71][variant],0,-0.01);
     if (variant === 0) {
       for (let i=-2;i<=2;i++) {
         const y=0.15+i*0.105;

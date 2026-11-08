@@ -31,26 +31,13 @@ const renderer = new THREE.WebGLRenderer({
   powerPreference: 'high-performance',
   preserveDrawingBuffer: false,
 });
-/**
- * 渲染像素比 —— 远景摩尔纹的根治点。
- *
- * 实测结论（1200×800 视口下把 pixelRatio 从 1 提到 2）：
- * 屋顶/墙面/地砖上的网格状条纹几乎完全消失。
- * 说明这类"摩尔纹"本质是**采样密度不足**，不是纹理过滤的问题：
- * 地砖缝、砖墙线这些 1~3px 级的高频细节，在 1 个渲染像素要覆盖
- * 一大片纹理时，无论 aniso 和 mipmap 怎么配都会走样成波纹。
- *
- * 所以策略从"跟随设备像素比"改成"保证最低采样密度"：
- *   - 设备像素比 >= 2（高 DPI 屏）：直接用设备的，不再人为削到 1.75
- *   - 设备像素比 = 1（普通屏）：超采样到 2 倍，用带宽换清晰度
- * 上限定 2 是因为再往上收益递减、显存与填充率开销陡增。
- */
+// Supersample small viewports for fine geometry, but cap the offscreen pixel
+// count on large monitors: every extra pixel also costs outline/MSAA bandwidth.
 const MAX_PIXEL_RATIO = 2;
-/** 渲染分辨率的下限倍率：低于它就会出现可见摩尔纹 */
-const MIN_PIXEL_RATIO = 2;
+const MAX_RENDER_PIXELS = 6_000_000;
 function currentPixelRatio(): number {
-  const dpr = window.devicePixelRatio || 1;
-  return Math.min(Math.max(dpr, MIN_PIXEL_RATIO), MAX_PIXEL_RATIO);
+  const pixels = Math.max(1, window.innerWidth * window.innerHeight);
+  return Math.max(1, Math.min(MAX_PIXEL_RATIO, Math.sqrt(MAX_RENDER_PIXELS / pixels)));
 }
 renderer.setPixelRatio(currentPixelRatio());
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -130,42 +117,37 @@ world.environment.bindRender({
 });
 
 /* ---------------- 尺寸 ---------------- */
-/**
- * 兜底：2 倍像素比的填充率是 1 倍的 4 倍。
- * 在小视口（本机实测 2400×1600 仍有 100 FPS）完全没问题，
- * 但超宽屏 / 集成显卡上可能吃不消。
- *
- * 做法是「先按最高质量跑，跑不动再退一档」：
- * 连续 45 帧平均超过 28ms（约 36 FPS）就把像素比降一级，最低 1x。
- * 只在性能真的不够时降级，正常设备始终享受满清晰度，不会出现
- * 因为固定低倍率而在任何位置都能看到摩尔纹的情况。
- */
+// Adjust only after a sustained slow window, excluding loading/assembly and
+// tab suspension. Small quarter steps preserve more detail than the old 0.5 jump.
 let pixelRatioLevel = currentPixelRatio();
 let frameBudget = 0;
 let frameCount = 0;
-let downgraded = false;
-
-function applyPixelRatio(pr: number): void {
-  pixelRatioLevel = pr;
-  renderer.setPixelRatio(pr);
-  resize();
-}
+let qualityWarmup = 2;
 
 function watchFrameBudget(dtMs: number): void {
-  if (downgraded || pixelRatioLevel <= 1.01) return;
-  frameBudget += dtMs;
+  if (document.hidden || !world.assembly.finished) {
+    frameBudget = 0;
+    frameCount = 0;
+    return;
+  }
+  // Bound a resume/compilation spike, while still adapting on consistently
+  // slow GPUs whose individual frames can take more than 250ms.
+  const sampleMs = Math.min(dtMs, 100);
+  if (qualityWarmup > 0) {
+    qualityWarmup -= sampleMs / 1000;
+    return;
+  }
+  if (pixelRatioLevel <= 1.01) return;
+  frameBudget += sampleMs;
   frameCount++;
-  if (frameCount < 45) return;
+  if (frameCount < 30 || frameBudget < 1500) return;
   const avg = frameBudget / frameCount;
   frameBudget = 0;
   frameCount = 0;
-  if (avg > 28) {
-    // 退一档，但不低于 1x（再低摩尔纹就会回来）
-    const next = Math.max(1, +(pixelRatioLevel - 0.5).toFixed(1));
-    if (next < pixelRatioLevel) {
-      applyPixelRatio(next);
-    }
-    if (pixelRatioLevel <= 1.01) downgraded = true;
+  if (avg > 20.5) {
+    pixelRatioLevel = Math.max(1, pixelRatioLevel - 0.25);
+    resize();
+    qualityWarmup = 2;
   }
 }
 
@@ -174,9 +156,11 @@ function resize(): void {
   const h = window.innerHeight;
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  const pr = Math.min(pixelRatioLevel, currentPixelRatio());
+  renderer.setPixelRatio(pr);
   renderer.setSize(w, h);
-  const pr = renderer.getPixelRatio();
-  pipeline.setSize(w * pr, h * pr);
+  const drawSize = renderer.getDrawingBufferSize(new THREE.Vector2());
+  pipeline.setSize(drawSize.x, drawSize.y);
 }
 window.addEventListener('resize', resize);
 // 监听像素比本身的变化（拖窗口到另一屏时不一定触发 resize）
@@ -395,7 +379,7 @@ function frame(): void {
   envUI.setSnowFeedback(surface.snowOnGround, surface.weather, surface.meltwater);
   pipeline.render(elapsed, dt);
   // 帧率守卫：只有真的跑不动才退档，正常设备一直保持最高清晰度
-  watchFrameBudget(dt * 1000);
+  watchFrameBudget(realDelta * 1000);
   requestAnimationFrame(frame);
 }
 
@@ -484,6 +468,9 @@ window.__konbini = {
     const r = renderer.info;
     return {
       calls: pipeline.sceneStats.calls,
+      totalCalls: pipeline.frameStats.calls,
+      totalTriangles: pipeline.frameStats.triangles,
+      pixelRatio: renderer.getPixelRatio(),
       triangles: pipeline.sceneStats.triangles,
       geometries: r.memory.geometries,
       textures: r.memory.textures,

@@ -90,3 +90,12 @@ export const L = {
     pitBorderH: 0.19,
   },
 };
+
+/** The metal canopy, snow cap and rain emitters share this envelope. */
+export const CANOPY = {
+  x: (L.door.x0 + L.door.x1) / 2,
+  w: Math.min(2.3, 2 * (L.store.x1 - 0.16 - (L.door.x0 + L.door.x1) / 2)),
+  d: 1.1,
+  z: L.store.z1 + 0.85,
+  top: L.store.glassTop - 0.22,
+} as const;

@@ -82,6 +82,34 @@ function cached(key: string, build: () => THREE.CanvasTexture): THREE.Texture {
   return t;
 }
 
+/** Small service labels share one cached texture per use, including pole IDs. */
+export function serviceNoticeTex(kind: 'door' | 'electric' | 'pole', id = ''): THREE.Texture {
+  return cached(`service-notice:${kind}:${id}`, () => {
+    const [c, ctx] = mk(kind === 'pole' ? 128 : 384, kind === 'pole' ? 256 : 160);
+    ctx.fillStyle = kind === 'electric' ? '#edd68c' : '#e9e7d9';
+    ctx.fillRect(0, 0, c.width, c.height);
+    ctx.strokeStyle = '#4b5c5d'; ctx.lineWidth = 8;
+    ctx.strokeRect(6, 6, c.width - 12, c.height - 12);
+    ctx.textAlign = 'center'; ctx.fillStyle = '#344547';
+    if (kind === 'pole') {
+      ctx.fillRect(0, 0, 128, 54);
+      ctx.fillStyle = '#f2efe1'; ctx.font = `bold 24px ${JP}`;
+      ctx.fillText('星 野', 64, 35);
+      ctx.fillStyle = '#344547'; ctx.font = 'bold 42px sans-serif';
+      ctx.fillText(id, 64, 126);
+      ctx.font = '24px sans-serif'; ctx.fillText('06-24', 64, 177);
+      for (let i = 0; i < 14; i++) ctx.fillRect(22 + i * 6, 200, i % 3 === 0 ? 4 : 2, 27);
+    } else if (kind === 'door') {
+      ctx.font = `bold 37px ${JP}`; ctx.fillText('関係者専用', 192, 66);
+      ctx.font = '21px sans-serif'; ctx.fillText('STAFF ONLY  /  HOSHINO', 192, 112);
+    } else {
+      ctx.font = 'bold 45px sans-serif'; ctx.fillText('⚡', 192, 62);
+      ctx.font = `bold 30px ${JP}`; ctx.fillText('高電圧  注意', 192, 114);
+    }
+    return finish(c);
+  });
+}
+
 /** Legible shelf-edge tickets, shared by every fixture in a department. */
 export function shelfTicketsTex(kind: string): THREE.Texture {
   return cached('shelf-tickets:' + kind, () => {
@@ -319,11 +347,16 @@ function logoMark(ctx: CanvasRenderingContext2D, x: number, y: number, r: number
 
 function signFace(w: number, h: number, opts: { sub?: string; marks?: boolean } = {}): THREE.CanvasTexture {
   const [c, ctx] = mk(w, h);
-  ctx.fillStyle = '#f7f2e5';
+  const backing = ctx.createLinearGradient(0, 0, 0, h);
+  backing.addColorStop(0, '#ece8dc');
+  backing.addColorStop(0.25, '#fffaf0');
+  backing.addColorStop(0.75, '#faf5e8');
+  backing.addColorStop(1, '#e5dfd0');
+  ctx.fillStyle = backing;
   ctx.fillRect(0, 0, w, h);
 
   // 顶部 / 底部撞色条
-  const band = h * 0.075;
+  const band = h * 0.055;
   ctx.fillStyle = hex(P.storeNavy);
   ctx.fillRect(0, 0, w, band);
   ctx.fillStyle = hex(P.storeMint);
@@ -332,56 +365,75 @@ function signFace(w: number, h: number, opts: { sub?: string; marks?: boolean } 
   ctx.fillRect(0, h - band * 0.42, w, band * 0.42);
 
   // 店名（logoMark 会改 fillStyle，画完必须重设）
-  const markR = h * 0.2;
-  logoMark(ctx, h * 0.34, h * 0.5, markR);
+  const markR = h * 0.235;
+  logoMark(ctx, h * 0.49, h * 0.48, markR);
   ctx.fillStyle = hex(P.storeNavy);
-  ctx.font = `700 ${Math.floor(h * 0.4)}px ${JP}`;
+  ctx.font = `700 ${Math.floor(h * 0.47)}px ${JP}`;
   ctx.textBaseline = 'middle';
+  ctx.textAlign = 'center';
+  const start = h * 1.14;
+  const end = w * 0.71;
+  [...'ホシノマート'].forEach((ch, i) => ctx.fillText(ch, start + (end - start) * i / 5, h * 0.46));
+  ctx.font = `600 ${Math.floor(h * 0.072)}px sans-serif`;
+  ctx.fillStyle = '#617272';
   ctx.textAlign = 'left';
-  ctx.fillText('ホシノマート', h * 0.66, h * 0.54);
+  ctx.fillText('HOSHINO MART   /   EVERYDAY GOODS', start - h * 0.19, h * 0.81);
 
   if (opts.marks !== false) {
     // 右侧 24H
     ctx.textAlign = 'right';
     ctx.fillStyle = hex(P.storeCoral);
-    ctx.font = `800 ${Math.floor(h * 0.3)}px ${JP}`;
-    ctx.fillText('24H', w - h * 0.28, h * 0.42);
+    ctx.font = `800 ${Math.floor(h * 0.4)}px sans-serif`;
+    ctx.fillText('24H', w - h * 0.32, h * 0.41);
     ctx.fillStyle = 'rgba(29,42,69,0.72)';
     ctx.font = `600 ${Math.floor(h * 0.115)}px ${JP}`;
-    ctx.fillText(opts.sub ?? 'OPEN 24 HOURS', w - h * 0.28, h * 0.7);
+    ctx.fillText('24時間営業', w - h * 0.32, h * 0.71);
+    ctx.font = `600 ${Math.floor(h * 0.062)}px sans-serif`;
+    ctx.fillText(opts.sub ?? 'OPEN 24 HOURS', w - h * 0.32, h * 0.88);
+  } else {
+    ctx.textAlign = 'right';
+    ctx.font = `700 ${Math.floor(h * 0.17)}px sans-serif`;
+    ctx.fillStyle = hex(P.storeCoral);
+    ctx.fillText('24H', w - h * 0.29, h * 0.47);
+    ctx.font = `500 ${Math.floor(h * 0.062)}px sans-serif`;
+    ctx.fillStyle = '#617272';
+    ctx.fillText('FRESH & DAILY', w - h * 0.29, h * 0.73);
   }
   return finish(c);
 }
 
 export function storeSignTex(): THREE.Texture {
-  return cached('storeSign', () => signFace(1024, 220));
+  return cached('storeSign', () => signFace(2048, 256));
 }
 
 export function storeSignSmallTex(): THREE.Texture {
-  return cached('storeSignSmall', () => signFace(768, 200, { marks: false, sub: '' }));
+  return cached('storeSignSmall', () => signFace(2048, 256, { marks: false, sub: '' }));
 }
 
 export function verticalSignTex(): THREE.Texture {
   return cached('verticalSign', () => {
-    const W = 220;
-    const H = 900;
+    const W = 256;
+    const H = 1408;
     const [c, ctx] = mk(W, H);
     ctx.fillStyle = '#f8f3e6';
     ctx.fillRect(0, 0, W, H);
     ctx.fillStyle = hex(P.storeCoral);
-    ctx.fillRect(0, 0, W, 78);
+    ctx.fillRect(0, 0, W, 142);
     ctx.fillStyle = '#fff';
-    ctx.font = `800 52px ${JP}`;
+    ctx.font = '800 76px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('24H', W / 2, 42);
+    ctx.fillText('24H', W / 2, 80);
     ctx.fillStyle = hex(P.storeNavy);
-    ctx.font = `700 104px ${JP}`;
+    ctx.font = `700 150px ${JP}`;
     const chars = 'ホシノ';
-    chars.split('').forEach((ch, i) => ctx.fillText(ch, W / 2, 190 + i * 116));
+    chars.split('').forEach((ch, i) => ctx.fillText(ch, W / 2, 300 + i * 184));
     ctx.fillStyle = hex(P.storeNavy);
-    ctx.font = `700 58px ${JP}`;
-    'マート'.split('').forEach((ch, i) => ctx.fillText(ch, W / 2, 610 + i * 68));
+    ctx.font = `700 100px ${JP}`;
+    'マート'.split('').forEach((ch, i) => ctx.fillText(ch, W / 2, 884 + i * 130));
+    ctx.fillStyle = '#71817c';
+    ctx.font = '600 21px sans-serif';
+    ctx.fillText('H O S H I N O', W / 2, 1305);
     // 底部收边：旧版是 30px 的 storeMint 青带，颜色和玻璃一样，
     // 低角度看过去像"招牌下半截是透明玻璃"。改成珊瑚色窄带 + 奶油底边，
     // 保持品牌色但读作实体招牌的封底。
@@ -980,6 +1032,77 @@ export function magazineTex(seed: number): THREE.Texture {
       ctx.fillStyle = 'rgba(90,94,102,0.55)';
       ctx.fillRect(0, (y + 1) * ch - 5, W, 5);
     }
+    return finish(c);
+  });
+}
+
+/** Store promotion artwork, drawn once and reused on window and pavement frames. */
+export function promoPosterTex(kind: 'coffee' | 'fresh'): THREE.Texture {
+  return cached(`promo-poster:${kind}`, () => {
+    const [c, ctx] = mk(512, 768);
+    const coffee = kind === 'coffee';
+    const ink = coffee ? '#f4e6c9' : '#274b43';
+    ctx.fillStyle = coffee ? '#263c43' : '#f3e8d1';
+    ctx.fillRect(0, 0, 512, 768);
+    ctx.strokeStyle = coffee ? '#80948c' : '#c5b492'; ctx.lineWidth = 2;
+    ctx.strokeRect(15, 15, 482, 738);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = ink; ctx.font = '600 20px sans-serif';
+    ctx.fillText('H O S H I N O   M A R T', 256, 47);
+    ctx.font = `800 52px ${JP}`;
+    ctx.fillText(coffee ? '淹れたて珈琲' : '手づくり気分', 256, 115);
+    ctx.font = '600 20px sans-serif';
+    ctx.fillStyle = coffee ? '#c3c8b0' : '#7e8e6e';
+    ctx.fillText(coffee ? 'FRESHLY BREWED · EVERY DAY' : 'RICE & NORI · FRESH DAILY', 256, 167);
+    ctx.fillStyle = coffee ? '#42534f' : '#dfcead';
+    ctx.beginPath(); ctx.ellipse(256, 444, 143, 23, 0, 0, Math.PI * 2); ctx.fill();
+    if (coffee) {
+      const cup = ctx.createLinearGradient(153, 0, 359, 0);
+      cup.addColorStop(0, '#dfc99d'); cup.addColorStop(0.5, '#fff0d4'); cup.addColorStop(1, '#c7af82');
+      ctx.fillStyle = cup;
+      ctx.beginPath(); ctx.moveTo(151, 263); ctx.lineTo(361, 263);
+      ctx.lineTo(335, 440); ctx.quadraticCurveTo(256, 463, 177, 440); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#b26e42';
+      ctx.beginPath(); ctx.moveTo(160, 317); ctx.lineTo(353, 317); ctx.lineTo(344, 387);
+      ctx.quadraticCurveTo(256, 407, 168, 387); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#f1e5ca'; ctx.beginPath(); ctx.ellipse(256, 351, 36, 33, 0, 0, Math.PI * 2); ctx.fill();
+      logoMark(ctx, 256, 351, 26);
+      ctx.fillStyle = '#162b31'; ctx.fillRect(143, 250, 226, 17);
+      ctx.beginPath(); ctx.ellipse(256, 248, 113, 21, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#a0b5a2'; ctx.lineWidth = 3;
+      for (const x of [218, 256, 294]) {
+        ctx.beginPath(); ctx.moveTo(x, 220); ctx.bezierCurveTo(x - 18, 202, x + 19, 190, x + 1, 177); ctx.stroke();
+      }
+    } else {
+      ctx.fillStyle = '#405e49';
+      ctx.beginPath(); ctx.moveTo(112, 432); ctx.quadraticCurveTo(256, 475, 400, 432);
+      ctx.lineTo(370, 449); ctx.quadraticCurveTo(256, 487, 142, 449); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#fff9e6'; ctx.strokeStyle = '#d1c4a6'; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(147, 414); ctx.quadraticCurveTo(125, 411, 141, 382);
+      ctx.lineTo(235, 220); ctx.quadraticCurveTo(256, 190, 277, 220);
+      ctx.lineTo(371, 382); ctx.quadraticCurveTo(388, 411, 365, 414); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#243e32'; ctx.fillRect(212, 326, 88, 94);
+      ctx.fillStyle = '#c3d0aa';
+      for (let i = 0; i < 12; i++) ctx.fillRect(218 + i * 6, 337, 1.4, 70);
+      ctx.fillStyle = '#ded7ba';
+      for (let i = 0; i < 31; i++) {
+        const x = 173 + (i * 43) % 166, y = 272 + (i * 31) % 124;
+        if (Math.abs(x - 256) < (y - 202) * 0.56 && !(x > 207 && x < 306 && y > 320)) {
+          ctx.beginPath(); ctx.ellipse(x, y, 2.5, 5, (i % 3 - 1) * 0.5, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+      ctx.fillStyle = '#d26748'; ctx.beginPath(); ctx.arc(383, 259, 42, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff4db'; ctx.font = `800 24px ${JP}`; ctx.fillText('新鮮', 383, 259);
+    }
+    ctx.fillStyle = ink; ctx.font = `600 26px ${JP}`;
+    ctx.fillText(coffee ? '挽きたての香りを、ひと息。' : 'ふっくらごはんと、有明のり。', 256, 502);
+    ctx.fillStyle = coffee ? '#e9bd7b' : '#bf5239';
+    ctx.font = '800 102px sans-serif'; ctx.fillText(coffee ? '¥120' : '¥158', 256, 611);
+    ctx.fillStyle = coffee ? '#b7c5b3' : '#7e816a'; ctx.font = `500 20px ${JP}`;
+    ctx.fillText(coffee ? 'HOT / ICE  ·  レギュラー  ·  税込' : '鮭おにぎり  ·  一個  ·  税込', 256, 678);
+    ctx.fillStyle = coffee ? '#cf8b5b' : '#3b7968'; ctx.fillRect(31, 711, 450, 28);
+    ctx.fillStyle = '#fff4de'; ctx.font = '600 15px sans-serif';
+    ctx.fillText('OPEN 24 HOURS   /   ALWAYS YOUR CORNER', 256, 725);
     return finish(c);
   });
 }

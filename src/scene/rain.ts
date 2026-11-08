@@ -8,7 +8,7 @@
  */
 
 import * as THREE from 'three';
-import { L } from './layout';
+import { CANOPY, L } from './layout';
 
 const VERT = /* glsl */ `
   attribute vec3 iOffset;
@@ -156,17 +156,18 @@ export function buildRain(root: THREE.Object3D, opts: { count?: number; height?:
 export function buildDrips(root: THREE.Object3D, ctx: { ticks: ((t: number, dt: number) => void)[] }): void {
   // 雨棚前缘 + 招牌下缘的滴水
   const spots: { x: number; z: number; y: number; period: number; phase: number }[] = [];
-  const canopyY = 2.6;
-  const doorCX = 0.9;
-  for (let i = 0; i < 9; i++) {
+  const gutterZ = CANOPY.z + CANOPY.d / 2 + 0.018;
+  for (let i = 0; i < 7; i++) {
     spots.push({
-      x: doorCX - 1.6 + (i / 8) * 3.2,
-      z: L.store.z1 + 1.33,
-      y: canopyY,
+      x: CANOPY.x - CANOPY.w / 2 + 0.06 + (i / 6) * (CANOPY.w - 0.12),
+      z: gutterZ,
+      y: CANOPY.top - 0.106,
       period: 0.85 + (i % 4) * 0.2,
       phase: i * 0.7,
     });
   }
+  spots.push({ x: CANOPY.x + CANOPY.w / 2 - 0.095, z: gutterZ - 0.004,
+    y: CANOPY.top - 0.205, period: 0.65, phase: 0.42 });
   // 招牌下缘
   for (let i = 0; i < 5; i++) {
     spots.push({ x: L.store.x0 + 0.8 + i * 1.5, z: L.store.z1 + 0.33, y: 3.76, period: 1.5 + (i % 3) * 0.38, phase: i * 1.3 });
@@ -179,8 +180,9 @@ export function buildDrips(root: THREE.Object3D, ctx: { ticks: ((t: number, dt: 
 
   const dropGeo = new THREE.SphereGeometry(0.022, 6, 6);
   const dropMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xcfe6ff).multiplyScalar(1.3), toneMapped: false, transparent: true, opacity: 0.85 });
-  const drops = spots.map(() => {
+  const drops = spots.map((spot) => {
     const m = new THREE.Mesh(dropGeo, dropMat);
+    m.userData.dripOrigin = spot;
     m.visible = false;
     g.add(m);
     return m;

@@ -62,6 +62,8 @@ export function mergeStaticMeshes(
 
   // 先把世界矩阵更新到最新，否则烘焙出来的位置是旧的
   root.updateMatrixWorld(true);
+  const rootInverse = root.matrixWorld.clone().invert();
+  const mtx = new THREE.Matrix4();
 
   let before = 0;
   root.traverse((o) => {
@@ -121,9 +123,7 @@ export function mergeStaticMeshes(
       g.setIndex(new THREE.BufferAttribute(idx, 1));
     }
     // 烘焙世界矩阵（合并结果挂在 root 上，root 自身的变换要抵消掉）
-    const mtx = new THREE.Matrix4();
-    root.updateMatrixWorld(true);
-    mtx.copy(root.matrixWorld).invert().multiply(m.matrixWorld);
+    mtx.copy(rootInverse).multiply(m.matrixWorld);
     g.applyMatrix4(mtx);
     b.geos.push(g);
   });

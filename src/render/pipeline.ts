@@ -1,11 +1,11 @@
 /**
  * 自建后处理管线。
  *
- * 顺序：场景(带深度纹理) → bloom 叠加 → 深度边缘描边 + 调色 → 屏幕。
+ * 顺序：花冠遮罩 / 实体深度 → 场景颜色 → bloom → 描边与调色 → 屏幕。
  *
  * 为什么不直接用 EffectComposer：
- * 我们要在「bloom 之后」做深度边缘检测，而描边需要场景的深度附件。
- * 自己管两个 render target 反而更短、更可控，也省掉一个 CopyPass。
+ * 颜色与描边深度分开，花瓣、玻璃和雨不会污染实体轮廓。
+ * 辅助 pass 使用无光照材质，并共用主 pass 更新一次的阴影。
  *
  * 描边原理：对深度做拉普拉斯，深度突变处画线。因为整个模型是硬边几何，
  * 深度断层几乎覆盖所有需要描边的轮廓与转折，代价是一次全屏采样。
@@ -127,6 +127,8 @@ export interface Pipeline {
   }) => void;
   /** 场景本身（不含后处理）的渲染统计 */
   sceneStats: { calls: number; triangles: number };
+  /** All passes, including shadows and postprocessing, in the last frame. */
+  frameStats: { calls: number; triangles: number };
 }
 
 export function createPipeline(
@@ -137,7 +139,7 @@ export function createPipeline(
   const size = new THREE.Vector2();
   renderer.getSize(size);
 
-  // 场景目标：半浮点颜色 + 深度纹理
+  // 场景目标：半浮点颜色 + MSAA 深度缓冲（无需深度纹理）
   //
   // samples：MSAA 采样数。
   // 这个管线是「先渲到 RT、再做后处理」，renderer 的 antialias 选项
@@ -146,13 +148,10 @@ export function createPipeline(
   // 远处密集的几何边缘（地砖、砖墙、斑马线）会直接走样成条纹。
   const maxSamples = renderer.capabilities.maxSamples ?? 4;
   const msaaSamples = Math.min(4, maxSamples);
-  const depthTexture = new THREE.DepthTexture(size.x, size.y);
-  // 24 位深度：16 位在远景下相邻像素的深度值会落到同一个量化台阶，
-  // 描边判断就会在整片区域随机出线（表现为细密噪点）。
-  depthTexture.type = THREE.UnsignedIntType;
+  // Only the dedicated outline target is sampled for depth. Keeping another
+  // depth texture here needlessly resolves an MSAA depth attachment every frame.
   const rt = new THREE.WebGLRenderTarget(size.x, size.y, {
     type: THREE.HalfFloatType,
-    depthTexture,
     depthBuffer: true,
     samples: msaaSamples,
   });
@@ -165,7 +164,7 @@ export function createPipeline(
    * 都描上黑边，整棵树糊成一团黑。但把花瓣完全排除出渲染又会
    * 让树枝穿透花冠显形。
    *
-   * 所以描边判断改看这一张图：只渲染层 0（实体）和层 1（玻璃/雨），
+   * 所以描边判断改看这一张图：只渲染层 0（实体），
    * 不含层 2 的花瓣。花瓣在主 rt 里正常着色，只是不产生描边线。
    *
    * 关键：颜色目标必须和深度纹理同样尺寸。
@@ -183,8 +182,16 @@ export function createPipeline(
     depthTexture: edgeDepth,
     depthBuffer: true,
   });
+  const edgeMaterial = new THREE.MeshDepthMaterial();
+  edgeMaterial.colorWrite = false;
 
   const bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.42, 0.55, 0.86);
+  // Bound the energy sent into the blur, leaving the sharp HDR scene intact.
+  // Otherwise very bright shop lights spread a veil over the printed sign text.
+  bloom.materialHighPassFilter.fragmentShader = bloom.materialHighPassFilter.fragmentShader.replace(
+    'gl_FragColor = mix( outputColor, texel, alpha );',
+    'gl_FragColor = mix( outputColor, vec4(texel.rgb / max(1.0, v), texel.a), alpha );',
+  );
 
   /**
    * 花冠遮罩目标。
@@ -192,14 +199,14 @@ export function createPipeline(
    * 渲染流程变成「两遍」：
    *   1. 遮罩 pass：只画 OUTLINE_PROXY_LAYER（花冠代理体），白色不透明。
    *      不需要深度，只要一块能看出「哪里是花团」的剪影。
-   *   2. 描边深度 pass：只画 0 / 1 层（实体与玻璃），不含花瓣。
+   *   2. 描边深度 pass：只画 0 层实体，不含玻璃、雨和花瓣。
    *
    * 两遍合起来就能做到：花团内部不出描边线，而花团背后的枝条轮廓
    * 也不会被错误地画到花团表面。
    */
   const maskTarget = new THREE.WebGLRenderTarget(size.x, size.y, {
     type: THREE.UnsignedByteType,
-    depthBuffer: true,
+    depthBuffer: false,
   });
 
   const uniforms = {
@@ -236,10 +243,13 @@ export function createPipeline(
   quadScene.add(quad);
 
   const sceneStats = { calls: 0, triangles: 0 };
+  const frameStats = { calls: 0, triangles: 0 };
+  const savedClear = new THREE.Color();
 
   return {
     bloom,
     sceneStats,
+    frameStats,
     exposure: uniforms.uExposure,
     setEdgeStrength(v) {
       uniforms.uEdgeStrength.value = v;
@@ -264,25 +274,37 @@ export function createPipeline(
     },
     setSize(w, h) {
       rt.setSize(w, h);
-      depthTexture.image.width = w;
-      depthTexture.image.height = h;
       edgeTarget.setSize(w, h);
       edgeDepth.image.width = w;
       edgeDepth.image.height = h;
-      maskTarget.setSize(w, h);
+      // A soft silhouette and a deliberately blurred glow need fewer pixels
+      // than the sharp scene/outline buffers.
+      maskTarget.setSize(Math.max(1, Math.round(w / 2)), Math.max(1, Math.round(h / 2)));
       uniforms.uResolution.value.set(w, h);
-      bloom.setSize(w, h);
+      bloom.setSize(Math.max(1, Math.round(w / 2)), Math.max(1, Math.round(h / 2)));
     },
     // 第一个参数是累计时间：bloom 只需要 dt，
     // 但保留 `_t` 让签名与调用处一致（也是给后续加时间类效果留的位置）。
     render(_t, dt) {
+      const savedAutoReset = renderer.info.autoReset;
+      renderer.info.autoReset = false;
+      renderer.info.reset();
       /* ---- 0a. 花冠遮罩 pass：只画代理体，白色剪影 ---- */
       const savedMask = camera.layers.mask;
       // 遮罩必须清成纯黑（着色器把 R 通道当"遮罩强度"读，黑 = 不遮挡）。
       // 但 setClearColor 改的是 renderer 的全局状态，不清回去会污染
       // 主渲染与后续所有 pass —— 主渲染的背景色会被悄悄改成透明黑。
-      const savedClear = renderer.getClearColor(new THREE.Color());
+      renderer.getClearColor(savedClear);
       const savedAlpha = renderer.getClearAlpha();
+      const savedOverride = scene.overrideMaterial;
+      const savedBackground = scene.background;
+      const savedShadowAutoUpdate = renderer.shadowMap.autoUpdate;
+      const savedShadowNeedsUpdate = renderer.shadowMap.needsUpdate;
+      // Auxiliary passes use no lighting. In particular they must not rebuild
+      // shadow maps with the proxy-only camera layers and overwrite real shadows.
+      renderer.shadowMap.autoUpdate = false;
+      renderer.shadowMap.needsUpdate = false;
+      scene.background = null;
       camera.layers.disableAll();
       camera.layers.enable(3);
       renderer.setRenderTarget(maskTarget);
@@ -290,35 +312,32 @@ export function createPipeline(
       renderer.clear();
       renderer.render(scene, camera);
 
-      /* ---- 0b. 描边深度 pass：实体 + 玻璃，不含花瓣与代理体 ---- */
+      /* ---- 0b. Unlit depth only: opaque outline geometry, no glass/weather ---- */
       // 层 2（花簇/落樱/地面花瓣）不参与，避免每片花瓣都被描黑边。
       // 层 3 也不参与 —— 它只在遮罩里出现，不该污染描边的深度。
       camera.layers.disableAll();
       camera.layers.enable(0);
-      camera.layers.enable(1);
+      scene.overrideMaterial = edgeMaterial;
       renderer.setRenderTarget(edgeTarget);
       renderer.clear();
       renderer.render(scene, camera);
       camera.layers.mask = savedMask;
+      scene.overrideMaterial = savedOverride;
+      scene.background = savedBackground;
+      renderer.shadowMap.autoUpdate = savedShadowAutoUpdate;
+      renderer.shadowMap.needsUpdate = savedShadowNeedsUpdate;
       // 恢复全局清屏色，别把辅助 pass 的临时设置泄漏给主渲染
       renderer.setClearColor(savedClear, savedAlpha);
 
       /* ---- 1. 场景 → rt（完整渲染，含层 2 的花瓣） ---- */
       renderer.setRenderTarget(rt);
       renderer.clear();
-      // 关掉自动重置：否则 renderer.info 会被后续的 bloom / 全屏 pass 覆盖，
-      // 只读到最后一趟 quad（1 draw call、2 三角形），统计完全失真。
-      renderer.info.autoReset = false;
-      // 关键：reset() 必须紧贴主渲染。前面两遍 pass（花冠遮罩、描边深度）
-      // 也在往同一个计数器里累加，不重置的话 sceneStats 读到的是
-      // "主渲染 + 两遍 pass"的和，三角面会虚高近三倍。
-      renderer.info.reset();
+      const beforeCalls = renderer.info.render.calls;
+      const beforeTriangles = renderer.info.render.triangles;
       renderer.render(scene, camera);
       // 在这一刻冻结场景的真实统计
-      sceneStats.calls = renderer.info.render.calls;
-      sceneStats.triangles = renderer.info.render.triangles;
-      // 立刻再清一次：bloom / 全屏 quad 的绘制不该污染下一次采样的基线
-      renderer.info.reset();
+      sceneStats.calls = renderer.info.render.calls - beforeCalls;
+      sceneStats.triangles = renderer.info.render.triangles - beforeTriangles;
 
       // 2. bloom 直接加色混合回 rt（needsSwap=false 的通行做法）
       bloom.render(renderer, rt, rt, dt, false);
@@ -327,7 +346,9 @@ export function createPipeline(
       renderer.setRenderTarget(null);
       renderer.clear();
       renderer.render(quadScene, quadCam);
-      renderer.info.autoReset = true;
+      frameStats.calls = renderer.info.render.calls;
+      frameStats.triangles = renderer.info.render.triangles;
+      renderer.info.autoReset = savedAutoReset;
     },
   };
 }

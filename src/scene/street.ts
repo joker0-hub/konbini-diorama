@@ -8,7 +8,7 @@
 
 import * as THREE from 'three';
 import { P } from '../core/palette';
-import { addBox, addCyl, addMesh, group, noOutline, planeGeo, sagWire, strut } from '../core/geom';
+import { addBox, addCyl, addMesh, group, noOutline, planeGeo, strut } from '../core/geom';
 import { additiveClone, decal, glow, radialGlowTex, toon } from '../core/materials';
 import * as TX from '../core/textures';
 import { L } from './layout';
@@ -20,30 +20,10 @@ import { BottlePhysics } from '../core/bottle-physics';
 import { buildRecyclingBin } from './recycling-bin';
 import { buildBicycle } from './bicycle';
 import { buildUmbrellaStand } from './umbrella-stand';
+import { buildUtilityPoles } from './utility-poles';
+import { buildPosterFrame } from './advertising';
 
 const CURB = L.curb;
-
-/**
- * 四根电线杆的落点 —— 场景里唯一的杆位来源。
- *
- * `buildWires()` 的电线端点必须和这里严格一致，否则端点会飘在杆子外面，
- * 所以两边共用这一份坐标，不再各写一套数字。
- *
- * 索引约定（buildWires 按名字取用，不靠下标）：
- *   rightFront / rightBack  右侧沿街两根
- *   leftBack / leftFront    左侧（邻楼前）两根
- */
-const POLES = {
-  // 右前杆：原来在 x = 5.9，正好立在右边斑马线（x ∈ [4.4, 8]）中间，
-  // 和后面的右后杆（x = 4.3）错开 1.6m，看起来就是一根杆斜插在斑马线上、
-  // 与后杆不平行。现在对齐到 x = 4.3，两根沿街成一条直线。
-  rightFront: [4.3, 1.55],
-  rightBack: [4.3, -6.6],
-  // 左侧同理：原来 -7.4 / -7.2 只差 0.2m，近看仍是"两根不齐"。
-  // 统一到 -7.4 —— 横担外伸 0.85 后到 -8.25，仍在台座外沿 8.3 之内。
-  leftBack: [-7.4, -7.0],
-  leftFront: [-7.4, 2.6],
-} as const satisfies Record<string, readonly [number, number]>;
 
 export interface StreetRefs {
   /** 街角信号灯（车灯 + 行人灯 + 循环） */
@@ -83,11 +63,9 @@ export function buildStreet(root: THREE.Object3D, ctx: SceneCtx): StreetRefs {
   buildStreetLamp(g, lampX, lampZ, ctx);
   const streetLamp = new THREE.PointLight(0xffcf94, 13, 12, 2);
   streetLamp.position.set(lampX + 0.8, 4.05, lampZ - 0.2);
-  streetLamp.castShadow = true;
-  streetLamp.shadow.mapSize.set(1024, 1024);
-  streetLamp.shadow.camera.near = 0.6;
-  streetLamp.shadow.camera.far = 16;
-  streetLamp.shadow.bias = -0.0015;
+  // The directional light supplies the street shadows. A point-light shadow
+  // renders the whole scene six more times for this small pool of warm light.
+  streetLamp.castShadow = false;
   g.add(streetLamp);
 
   // 门口溢光（随自动门开合微弱变化）
@@ -96,20 +74,9 @@ export function buildStreet(root: THREE.Object3D, ctx: SceneCtx): StreetRefs {
   g.add(doorSpill);
 
   /* ================= 电线杆 + 电线 ================= */
-  // 杆位是构图问题：主视角从 (+x,+z) 看向店角，
-  // 任何落在 (2.2, 0.8) 与相机连线上的杆都会挡住整块模型的中心。
-  // 所以近处的杆放在「右后侧」和「左前（邻楼前）」，
-  // 电线从画面上方斜穿过去 —— 既保留日式街区感，也不挡主体。
-  // 杆位必须保证「横担两端」也在台座内：
-  // 横担半宽 0.85，台座外沿 8.3，所以杆心 |x| 最大只能到 7.45。
-  // 原来最左那根放在 -7.7，横担直接探出 0.25m 悬在台座外。
-  //
-  // 右侧两根必须沿街「对齐」：右边车道的斑马线占 x ∈ [4.4, 8]，
-  // 原来的右前杆在 x = 5.9，正好戳在斑马线中间；而右后杆在 x = 4.3。
-  // 两根错开 1.6m，从街对面看就是一根杆斜插在斑马线上、和后面的杆不平行。
-  // 现在统一到 POLES 常量，杆位与电线端点共用一份坐标，不会再各写一套。
-  for (const [px, pz] of Object.values(POLES)) buildUtilityPole(g, px, pz);
-  buildWires(g);
+  // The pole builder owns both pole positions and exact conductor terminals.
+  // Crossarms stay within the base and each pair of street-side poles aligns.
+  buildUtilityPoles(g);
 
   /* ================= 信号灯（街角路口） ================= */
   // 杆脚放在人行道转角内侧（x≈4.2, z≈2.95），横臂伸到右侧车道上方，
@@ -343,71 +310,6 @@ function buildStreetLamp(parent: THREE.Object3D, x: number, z: number, ctx: Scen
   ctx.wet.push({ mesh: refl, base: 0.46 });
 }
 
-function buildUtilityPole(parent: THREE.Object3D, x: number, z: number): void {
-  // 组的原点必须放在杆子的落地面上。
-  //
-  // 之前这里写的是 group(parent, x, 0, z)，而杆体从 CURB 开始 ——
-  // 于是整根杆子在 y 方向凭空高了 0.14m，从低角度看就是"杆子离地悬着"。
-  // 现在让组原点落在杆脚，杆体从 0 开始，其余部件全部相对杆脚定位。
-  const g = group(parent, x, CURB, z, 'utility-pole');
-  const conc = toon(0xffffff, { map: TX.concreteTex() });
-  addCyl(g, conc, 0.095, 0.14, 7.2, 0, 0, 0, { seg: 10 });
-  for (let i = 0; i < 2; i++) {
-    const y = 5.9 + i * 0.55;
-    addBox(g, toon(0x464c57), 1.7, 0.065, 0.065, 0, y, 0);
-    for (let k = -1; k <= 1; k++) {
-      addCyl(g, toon(0xd4d8de), 0.048, 0.056, 0.12, k * 0.6, y + 0.065, 0, { seg: 8 });
-    }
-  }
-  addCyl(g, toon(0x6b7280), 0.23, 0.23, 0.72, 0.35, 4.35, 0, { seg: 12 });
-  addCyl(g, toon(0x464c57), 0.25, 0.25, 0.055, 0.35, 5.07, 0, { seg: 12 });
-  addCyl(g, toon(0x464c57), 0.045, 0.045, 0.18, 0.35, 5.13, 0, { seg: 8 });
-  for (let i = 0; i < 6; i++) addBox(g, toon(0x464c57), 0.28, 0.028, 0.028, 0, 1.6 + i * 0.8, 0.12);
-  // 杆号牌
-  addBox(g, toon(0xeeeade), 0.16, 0.26, 0.018, 0, 3.0, 0.14, { cast: false });
-  addBox(g, toon(0x282d36), 0.1, 0.19, 0.005, 0, 3.05, 0.152, { cast: false });
-  // 拉线
-  addCyl(g, toon(0x6b7280), 0.011, 0.011, 3.0, 0.2, 5.4, 0.2, { rx: 0.24, rz: -0.17, seg: 4 });
-}
-
-function buildWires(parent: THREE.Object3D): void {
-  const wireMat = toon(0x111419);
-  // 端点一律从 POLES 取，不再硬编码 —— 杆一挪，电线跟着走。
-  const [ax, az] = POLES.rightFront;
-  const [bx, bz] = POLES.rightBack;
-  const [cx, cz] = POLES.leftBack;
-  const [dx, dz] = POLES.leftFront;
-  const A = new THREE.Vector3(ax, 6.6, az);   // 右前杆
-  const B = new THREE.Vector3(bx, 6.5, bz);   // 右后杆
-  const C = new THREE.Vector3(cx, 6.55, cz);  // 左后杆
-  const D = new THREE.Vector3(dx, 6.5, dz);   // 左前杆
-  const routes: [THREE.Vector3, THREE.Vector3, number][] = [
-    // 右侧沿街三根（从画面上方斜穿）
-    [A.clone().setY(6.62), B.clone().setY(6.55), 0.55],
-    [A.clone().setY(6.08), B.clone().setY(6.0), 0.5],
-    [A.clone().setY(5.55), B.clone().setY(5.45), 0.44],
-    // 横跨前街（最高处，只在画面上缘出现）
-    [D, A, 0.75],
-    [D.clone().setY(6.0), A.clone().setY(6.05), 0.7],
-    // 后侧
-    [C, D, 0.6],
-    [C, B, 0.55],
-  ];
-  for (const [a, b, sag] of routes) {
-    const pts = sagWire([a.x, a.y, a.z], [b.x, b.y, b.z], sag, 16);
-    const curve = new THREE.CatmullRomCurve3(pts);
-    const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 22, 0.017, 5, false), wireMat);
-    tube.castShadow = false;
-    parent.add(tube);
-  }
-  // 入户线：从右前杆接到便利店屋顶（起点随杆位走）
-  const drop = sagWire([ax - 0.2, 5.3, az + 0.15], [L.store.x1 + 0.15, 4.2, L.store.z1 - 0.6], 0.28, 12);
-  parent.add(new THREE.Mesh(
-    new THREE.TubeGeometry(new THREE.CatmullRomCurve3(drop), 16, 0.013, 4, false),
-    toon(0x181c23),
-  ));
-}
-
 function buildRoadSigns(parent: THREE.Object3D): void {
   const g = group(parent, 0, 0, 0, 'road-signs');
   const pole = toon(0x969da6);
@@ -505,8 +407,14 @@ function buildAlley(parent: THREE.Object3D, ctx: SceneCtx): void {
   }
 
   // 尽头霓虹招牌
+  const neonFrame = group(g, cx, 2.9, A.z0 + 0.025, 'alley-neon-lightbox');
+  const signMetal = toon(0x9ca8aa), signDark = toon(0x414d53);
+  addBox(neonFrame, signDark, 0.72, 2.3, 0.1, 0, -1.15, 0);
+  for (const x of [-0.35, 0.35]) addBox(neonFrame, signMetal, 0.025, 2.3, 0.04, x, -1.15, 0.06, { cast: false });
+  for (const y of [-1.14, 1.12]) addBox(neonFrame, signMetal, 0.72, 0.025, 0.04, 0, y, 0.06, { cast: false });
+  for (const y of [-0.8, 0.8]) addBox(neonFrame, signDark, 0.94, 0.07, 0.07, 0, y, -0.04);
   const neon = new THREE.Mesh(planeGeo(0.62, 2.2), decal(TX.alleyNeonTex('酒処', '#ff5f9e'), 1));
-  neon.position.set(cx, 2.9, A.z0 + 0.03);
+  neon.position.set(cx, 2.9, A.z0 + 0.103);
   g.add(neon);
   noOutline(neon);
   const halo = new THREE.Mesh(planeGeo(2.4, 3.6), additiveClone(radialGlowTex(), 0xff5f9e, 0.42));
@@ -531,11 +439,8 @@ function buildAlley(parent: THREE.Object3D, ctx: SceneCtx): void {
 
   // 海报
   for (let i = 0; i < 2; i++) {
-    const po = new THREE.Mesh(planeGeo(0.44, 0.66), decal(TX.posterTex(i + 3), 1));
-    po.position.set(A.x1 - 0.03, 1.4 + i * 0.05, A.z1 - 1.5 - i * 0.9);
-    po.rotation.y = -Math.PI / 2;
-    g.add(po);
-    noOutline(po);
+    buildPosterFrame(g, { x: A.x1 - 0.035, y: 1.4 + i * 0.05, z: A.z1 - 1.5 - i * 0.9,
+      w: 0.44, h: 0.66, ry: -Math.PI / 2, kind: i === 0 ? 'coffee' : 'fresh' });
   }
   // 垃圾袋
   for (let i = 0; i < 3; i++) {
