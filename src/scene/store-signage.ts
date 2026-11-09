@@ -17,7 +17,7 @@ function bolt(parent: THREE.Object3D, x: number, y: number, z: number, radius = 
   addBox(parent, dark, radius * 1.1, 0.002, 0.001, x, y - 0.001, z + 0.01, { cast: false });
 }
 
-function fascia(parent: THREE.Object3D, length: number, map: THREE.Texture, name: string): void {
+function fascia(parent: THREE.Object3D, length: number, map: THREE.Texture, name: string): THREE.MeshBasicMaterial {
   const g = group(parent, 0, 0, 0, name);
   const h = S.fasciaTop - S.glassTop;
   const dark = toon(0x414d53), metal = toon(0x9ca8aa), cream = toon(P.storeCream);
@@ -25,7 +25,8 @@ function fascia(parent: THREE.Object3D, length: number, map: THREE.Texture, name
   addBox(g, cream, length - 0.012, h - 0.01, 0.018, 0, -h / 2 + 0.005, 0.003, { cast: false });
   // Printed diffuser stays below the bloom threshold; the narrow edge lights
   // provide the glow without bleaching the lettering at night.
-  const face = addMesh(g, planeGeo(length - 0.065, h - 0.065), decal(map, 1, 0xd1d1d1), 0, 0, 0.016, { cast: false });
+  const print = decal(map, 1, 0xd1d1d1).clone();
+  const face = addMesh(g, planeGeo(length - 0.065, h - 0.065), print, 0, 0, 0.016, { cast: false });
   face.name = `${name}-print`;
   face.renderOrder = 9;
   noOutline(face);
@@ -52,31 +53,33 @@ function fascia(parent: THREE.Object3D, length: number, map: THREE.Texture, name
   const hatch = group(g, length / 2 - 0.27, -h / 2 - 0.057, -0.18, 'sign-service-hatch');
   addBox(hatch, metal, 0.29, 0.007, 0.2, 0, 0, 0, { cast: false });
   addBox(hatch, dark, 0.06, 0.004, 0.016, 0, -0.004, 0.03, { cast: false });
+  return print;
 }
 
-export function buildStoreSignage(parent: THREE.Object3D): THREE.MeshBasicMaterial[] {
+export function buildStoreSignage(parent: THREE.Object3D) {
   const h = S.fasciaTop - S.glassTop;
-  const signMats: THREE.MeshBasicMaterial[] = [];
+  const halos: THREE.MeshBasicMaterial[] = [];
   const midX = (S.x0 + S.x1) / 2, midZ = (S.z0 + S.z1) / 2;
   const front = group(parent, midX, S.glassTop + h / 2, S.z1 + 0.29, 'store-front-sign');
-  fascia(front, S.x1 - S.x0 + 0.32, TX.storeSignTex(), 'front-lightbox');
+  const frontPrint = fascia(front, S.x1 - S.x0 + 0.32, TX.storeSignTex(), 'front-lightbox');
   const side = group(parent, S.x1 + 0.29, S.glassTop + h / 2, midZ, 'store-side-sign');
   side.rotation.y = Math.PI / 2;
-  fascia(side, S.z1 - S.z0, TX.storeSignSmallTex(), 'side-lightbox');
+  const sidePrint = fascia(side, S.z1 - S.z0, TX.storeSignSmallTex(), 'side-lightbox');
   for (const [root, w, opacity] of [[front, S.x1 - S.x0 + 1.6, 0.3], [side, S.z1 - S.z0 + 1.2, 0.26]] as const) {
     const halo = addMesh(root, planeGeo(w, h + 0.9), additiveClone(glowSprite(w / (h + 0.9)), 0xfff2d4, opacity), 0, 0, -0.08, { cast: false });
     halo.renderOrder = 8;
     noOutline(halo);
-    signMats.push(halo.material as THREE.MeshBasicMaterial);
+    halos.push(halo.material as THREE.MeshBasicMaterial);
   }
 
   const vertical = group(parent, S.x1 + 0.58, 2.6, S.z1 + 0.58, 'vertical-sign');
   const metal = toon(0x9ca8aa), dark = toon(0x414d53), cream = toon(P.storeCream);
   addBox(vertical, cream, 0.5, 2.5, 0.5, 0, -1.25, 0, { r: 0.025 });
+  const verticalPrint = decal(TX.verticalSignTex(), 1, 0xd1d1d1).clone();
   for (let i = 0; i < 4; i++) {
     const face = group(vertical, 0, 0, 0, 'vertical-sign-face');
     face.rotation.y = i * Math.PI / 2;
-    const print = addMesh(face, planeGeo(0.44, 2.4), decal(TX.verticalSignTex(), 1, 0xd1d1d1), 0, 0, 0.26, { cast: false });
+    const print = addMesh(face, planeGeo(0.44, 2.4), verticalPrint, 0, 0, 0.26, { cast: false });
     print.renderOrder = 9;
     noOutline(print);
     for (const x of [-0.244, 0.244]) {
@@ -103,12 +106,12 @@ export function buildStoreSignage(parent: THREE.Object3D): THREE.MeshBasicMateri
   const halo = addMesh(vertical, planeGeo(1.8, 3), additiveClone(radialGlowTex(), 0xffe9c4, 0.22), 0.08, 0, 0.32, { cast: false });
   halo.renderOrder = 8;
   noOutline(halo);
-  signMats.push(halo.material as THREE.MeshBasicMaterial);
+  halos.push(halo.material as THREE.MeshBasicMaterial);
   buildStoreAdvertising(parent);
-  return signMats;
+  return { halos, prints: [frontPrint, sidePrint, verticalPrint] };
 }
 
-export function buildEntranceCanopy(parent: THREE.Object3D): void {
+export function buildEntranceCanopy(parent: THREE.Object3D): THREE.SpotLight {
   const { x, w, d, z, top } = CANOPY;
   const front = z + d / 2, back = z - d / 2;
   const g = group(parent, 0, 0, 0, 'canopy');
@@ -143,8 +146,13 @@ export function buildEntranceCanopy(parent: THREE.Object3D): void {
 
   // Recessed LED diffuser, housing and end plugs; no additional shadow-casting light.
   addBox(g, frame, w - 0.24, 0.035, 0.11, x, top - 0.105, front - 0.15, { cast: false });
-  const led = addBox(g, glow(0xffe9c0, 0.9), w - 0.32, 0.011, 0.075, x, top - 0.111, front - 0.15, { cast: false, name: 'canopy-led-diffuser' });
+  const led = addBox(g, glow(0xffead1, 1.34), w - 0.32, 0.011, 0.075, x, top - 0.111, front - 0.15, { cast: false, name: 'canopy-led-diffuser' });
   noOutline(led);
+  const downlight = new THREE.SpotLight(0xffdfb2, 15.4, 5.8, 0.91, 0.78);
+  downlight.name = 'canopy-downlight';
+  downlight.position.copy(led.position).add(new THREE.Vector3(0, -0.02, 0));
+  downlight.target.position.set(x, L.curb, front - 0.1);
+  g.add(downlight, downlight.target);
   for (const sx of [x - (w - 0.27) / 2, x + (w - 0.27) / 2]) addBox(g, edge, 0.035, 0.03, 0.12, sx, top - 0.103, front - 0.15, { cast: false });
   // Articulated tie rods terminate in bolted mounting plates at both ends.
   for (const sx of [x - w / 2 + 0.12, x + w / 2 - 0.12]) {
@@ -158,4 +166,5 @@ export function buildEntranceCanopy(parent: THREE.Object3D): void {
     addBox(g, frame, 0.095, 0.018, 0.105, sx, top + 0.007, a.z, { cast: false });
     addCyl(g, edge, 0.02, 0.02, 0.055, sx, a.y - 0.0275, a.z, { rz: Math.PI / 2, seg: 10, cast: false });
   }
+  return downlight;
 }

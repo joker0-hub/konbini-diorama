@@ -39,7 +39,9 @@ export interface StoreParts {
   root: THREE.Group;
   doorL: THREE.Object3D;
   doorR: THREE.Object3D;
-  signMats: THREE.MeshBasicMaterial[];
+  signage: ReturnType<typeof buildStoreSignage>;
+  entranceLight: THREE.SpotLight;
+  frontSpill: THREE.SpotLight;
   /** 店面前脸的玻璃面板（用于雨痕对齐） */
   frontGlass: { x: number; z: number; w: number; h: number };
   sideGlass: { x: number; z: number; w: number; h: number };
@@ -121,9 +123,20 @@ export function buildStore(root: THREE.Object3D, ctx: SceneCtx): StoreParts {
   noOutline(filmSide);
 
   /* ============ 灯箱、广告与入口雨棚 ============ */
-  const signMats = buildStoreSignage(g);
-  buildEntranceCanopy(g);
+  const signage = buildStoreSignage(g);
+  const entranceLight = buildEntranceCanopy(g);
   const canX = (DOOR.x0 + DOOR.x1) / 2;
+
+  // Broad beams start just inside the glazing and fall outward onto both sidewalks.
+  const frontSpill = new THREE.SpotLight(0xffecd3, 13.0, 5.8, 1.0, 0.85);
+  frontSpill.name = 'store-front-window-spill';
+  frontSpill.position.set(canX - 2.8, 2.36, S.z1 - 0.12);
+  frontSpill.target.position.set(canX - 2.1, L.curb, L.walk.zOuter - 0.55);
+  const sideSpill = new THREE.SpotLight(0xffecd3, 10.8, 5.4, 1.0, 0.85);
+  sideSpill.name = 'store-side-window-spill';
+  sideSpill.position.set(S.x1 - 0.12, 2.38, -3.25);
+  sideSpill.target.position.set(L.walk.xOuter - 0.55, L.curb, -3.25);
+  g.add(frontSpill, frontSpill.target, sideSpill, sideSpill.target);
 
   /* ============ 自动门 ============ */
   // 门的原点必须落在门洞中心（canX），不是场景原点。
@@ -225,7 +238,7 @@ export function buildStore(root: THREE.Object3D, ctx: SceneCtx): StoreParts {
     root: g,
     doorL,
     doorR,
-    signMats,
+    signage, entranceLight, frontSpill,
     frontGlass: { x: (S.x0 + S.x1) / 2, z: S.z1 + 0.035, w: S.x1 - S.x0 - 0.3, h: S.glassTop - S.floorY - 0.4 },
     sideGlass: { x: S.x1 + 0.035, z: (S.z0 + S.z1) / 2, w: S.z1 - S.z0 - 0.3, h: S.glassTop - S.floorY - 0.4 },
   };

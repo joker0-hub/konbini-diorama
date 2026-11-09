@@ -154,6 +154,64 @@ try {
   check('only the main scene pass rebuilds shadows', passes.runs.length === 3 && passes.runs.filter(p => p.shadows).length === 1 && passes.runs[1].depth && passes.runs[1].layers === 1, passes);
   check('pipeline restores state and reports all passes', passes.restored && passes.stats.totalCalls > passes.stats.calls && passes.stats.calls < 900, passes);
 
+  const reflection = await page.evaluate(() => {
+    const app = window.__konbini;
+    const { renderer, scene, camera, pipeline } = app;
+    const original = renderer.render;
+    const mirror = scene.getObjectByName('wet-ground-reflection');
+    const rain = scene.getObjectByName('rain-streaks');
+    const captures = [];
+    renderer.render = function (renderScene, renderCamera) {
+      if (renderScene === scene && renderCamera !== camera) {
+        captures.push({
+          mirrored: renderCamera.position.y < 0 && camera.position.y > 0,
+          shadows: renderer.shadowMap.autoUpdate || renderer.shadowMap.needsUpdate,
+          rain: rain.visible,
+          recursive: mirror.visible,
+          target: renderer.getRenderTarget() === mirror.getRenderTarget(),
+        });
+      }
+      return original.apply(this, arguments);
+    };
+    try {
+      app.env.set({ weather: 'rain' }, true);
+      pipeline.render(1, 1/60);
+      const restored = rain.visible && mirror.visible && renderer.getRenderTarget() === null;
+      app.env.set({ weather: 'clear' }, true);
+      pipeline.render(1, 1/60);
+      return { captures, restored, dry: !mirror.visible && app.world.wetReflection.captureStats.calls === 0 };
+    } finally {
+      renderer.render = original;
+    }
+  });
+  check('wet ground captures one mirrored view and skips it when dry', reflection.restored && reflection.dry &&
+    reflection.captures.length === 1 && reflection.captures.every(c =>
+      c.mirrored && c.target && !c.shadows && !c.rain && !c.recursive), reflection);
+
+  const lighting = await page.evaluate(async () => {
+    const { scene, world, env } = window.__konbini;
+    const { entranceLight, frontSpill, signage } = world.store;
+    const lamps = [entranceLight, frontSpill, scene.getObjectByName('store-side-window-spill'), world.street.streetLamp];
+    const sample = async (time) => {
+      env.set({ time, weather: 'clear' }, true);
+      await new Promise(requestAnimationFrame);
+      await new Promise(requestAnimationFrame);
+      return { intensities: lamps.map(lamp => lamp.intensity), print: signage.prints[0].color.r };
+    };
+    const night = await sample('night');
+    const day = await sample('day');
+    const led = scene.getObjectByName('canopy-led-diffuser');
+    return {
+      night, day,
+      mounted: entranceLight.position.distanceTo(led.position) < 0.05,
+      aimedDown: lamps.every(lamp => lamp.isSpotLight && lamp.target.parent === lamp.parent &&
+        lamp.target.position.y < lamp.position.y && !lamp.castShadow),
+    };
+  });
+  check('mounted lights aim down and brighten at night without washing out signs', lighting.mounted && lighting.aimedDown &&
+    lighting.night.intensities.every((intensity, i) => intensity > lighting.day.intensities[i]) &&
+    lighting.night.print > lighting.day.print && lighting.night.print < 0.86, lighting);
+
   for (const time of ['day', 'dusk', 'night']) {
     for (const weather of ['clear', 'rain', 'snow']) {
       await page.evaluate((time,weather) => window.__konbini.env.set({ time,weather },true), time,weather);
@@ -180,5 +238,5 @@ try {
   await frames(3);
   const size = await page.evaluate(() => ({ ratio: window.__konbini.renderer.getPixelRatio(), width: innerWidth, height: innerHeight }));
   check('large viewports respect the render pixel budget', size.ratio < 2 && size.width * size.height * size.ratio ** 2 <= 6_000_001, size);
-  console.log('17 scene checks passed');
+  console.log('19 scene checks passed');
 } finally { await browser.close(); }

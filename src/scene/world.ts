@@ -17,6 +17,7 @@ import { buildStarfield } from './stars';
 import { buildSnow, type SnowPatch } from './snow';
 import { buildSnowfall } from './snowfall';
 import { createWet, type WetHandles } from './wet';
+import { createWetReflection, type WetReflection } from './wet-reflection';
 import type { SignalHandles } from './signal';
 import { L } from './layout';
 void phaseWindow;
@@ -39,6 +40,7 @@ export interface World {
   signal: SignalHandles;
   /** 湿地面控制（用于调试/自动测试） */
   wet: WetHandles;
+  wetReflection: WetReflection;
   /** 天空渐变（由 Environment 驱动，经 main 转发到这里） */
   setSky: (zenith: number, horizon: number) => void;
 }
@@ -76,22 +78,6 @@ export function buildWorld(envInit: EnvState = { time: 'day', weather: 'clear' }
   const fill = new THREE.DirectionalLight(0x6d8cc8, 0.4);
   fill.position.set(12, 5, 14);
   root.add(fill);
-  // 门口/檐下的暖色补光（不投影），把"屋檐下的暖窝"托出来
-  // 注意：点光源必须离墙面足够远、distance 足够小。
-  // 贴着一面大墙放点光，等照面会在墙上切出一个半圆形亮斑，
-  // 三渲二的硬边会让它看起来像模型破了一个洞。
-  const porch = new THREE.PointLight(0xffd9a6, 2.0, 5.0, 2);
-  porch.position.set(0.9, 2.2, L.store.z1 + 1.9);
-  root.add(porch);
-
-  // 门口溢光（主光）。
-  // 不给点光开阴影：点光阴影是 6 面立方体贴图，在人行道这种大平面上
-  // 会因为 bias/分辨率不足而糊出一块边缘发虚的深色椭圆，
-  // 看起来像地砖脏了。方向光已经提供了足够的投影层次。
-  const doorLight = new THREE.PointLight(0xffe2b4, 13, 12, 2);
-  doorLight.position.set(1.2, 2.4, L.store.z1 + 1.6);
-  root.add(doorLight);
-
   /* ---------------- 各层 ---------------- */
   const baseObj = buildBase(root, ctx);
   const store = buildStore(root, ctx);
@@ -104,11 +90,10 @@ export function buildWorld(envInit: EnvState = { time: 'day', weather: 'clear' }
   rainLayer.traverse((o) => o.layers.set(1));
   buildDrips(root, ctx);
   buildGlassRain(root, store.frontGlass, store.sideGlass, ctx);
-  // 门口与路灯的体积光锥
-  const coneA = buildLightCone(rainLayer, 1.2, 2.4, L.store.z1 + 1.6, 3.0, 2.6, 0xffd9a8, 0.085);
-  coneA.layers.set(1);
-  const coneB = buildLightCone(rainLayer, -5.6, 4.0, 2.9, 2.6, 4.0, 0xffcf94, 0.075);
-  coneB.layers.set(1);
+  const lightCones = [
+    buildLightCone(store.entranceLight, 2.0, 2.33),
+    buildLightCone(street.streetLamp, 2.4, 4.4),
+  ];
 
   /* ---------------- 雪 ---------------- */
   // Use the actual cabinet/bin bounds before assembly moves or merges their meshes.
@@ -169,43 +154,28 @@ export function buildWorld(envInit: EnvState = { time: 'day', weather: 'clear' }
     const o = root.getObjectByName(n);
     if (o) rainLayers.push(o);
   }
-  const lightCones: THREE.Object3D[] = [coneA, coneB];
-
   /* ---------------- 湿地面：跟随天气淡入淡出 ---------------- */
   // 反光片/积水暗斑/涟漪都在构建时登记到 ctx.wet；
   // 这里统一交给一个控制器，避免"晴天还是湿的"。
   const wet = createWet(ctx.wet);
+  const wetReflection = createWetReflection(baseObj, [...rainLayers, ...lightCones]);
+  ctx.ticks.push((t) => wetReflection.setTime(t));
 
   /* ---------------- 环境：时段 × 天气 ---------------- */
-  // 收集所有需要随环境缩放的光源基线。
-  // 不逐个硬编码 —— 内装和街道模块各自加灯，这里统一兜住。
-  const interiorLights: { l: THREE.PointLight; base: number }[] = [];
-  if (interiorGroup) {
-    interiorGroup.traverse((o) => {
-      if ((o as THREE.PointLight).isPointLight) {
-        const pl = o as THREE.PointLight;
-        interiorLights.push({ l: pl, base: pl.intensity });
+  const collectLights = (group: THREE.Object3D | undefined) => {
+    const lights: { light: THREE.PointLight | THREE.SpotLight; base: number }[] = [];
+    group?.traverse((object) => {
+      if (object instanceof THREE.PointLight || object instanceof THREE.SpotLight) {
+        lights.push({ light: object, base: object.intensity });
       }
     });
-  }
-  const streetLights: { l: THREE.PointLight; base: number }[] = [];
-  if (streetGroup) {
-    streetGroup.traverse((o) => {
-      if ((o as THREE.PointLight).isPointLight) {
-        const pl = o as THREE.PointLight;
-        streetLights.push({ l: pl, base: pl.intensity });
-      }
-    });
-  }
-  // porch / doorLight 是 world 自己加的，也要算进"店铺灯光"
-  const shopLights: { l: THREE.PointLight; base: number }[] = [
-    { l: porch, base: porch.intensity },
-    { l: doorLight, base: doorLight.intensity },
-  ];
+    return lights;
+  };
+  const interiorLights = collectLights(interiorGroup);
+  const shopLights = collectLights(store.root);
+  const streetLights = collectLights(streetGroup);
 
-  // 这两个系数由 Environment 写入，update() 里再乘到各自的基础值上。
-  // 不做"设置绝对亮度"是因为 update() 里还有门的呼吸等动态项，
-  // 用系数相乘可以叠加而不互相覆盖。
+  // 用 Environment 的插值系数缩放各灯，门开启时再微调橱窗溢光。
   let signageScale = 1;
   let interiorScale = 1;
   let starOpacity = 1;
@@ -232,13 +202,19 @@ export function buildWorld(envInit: EnvState = { time: 'day', weather: 'clear' }
         // 必须整组关掉才不会在晴天里继续下雨。
         const on = v > 0.02;
         for (const l of rainLayers) l.visible = on;
-        for (const l of lightCones) l.visible = on;
+        const coneOpacity = v * THREE.MathUtils.lerp(0.008, 0.052, signageScale);
+        for (const cone of lightCones) {
+          cone.visible = on;
+          cone.material.uniforms.uOpacity.value = coneOpacity;
+        }
         // 涟漪只在下雨时出现（雪天/晴天都关掉）
         wet.setRain(v);
+        wetReflection.setRain(v);
       },
       setWetness(v) {
         wetness = v;
         wet.setWetness(v);
+        wetReflection.setWetness(v);
       },
       setStarOpacity(v) {
         starOpacity = v;
@@ -266,7 +242,7 @@ export function buildWorld(envInit: EnvState = { time: 'day', weather: 'clear' }
     assembly.update(weatherDt);
     environment.update(weatherDt);
     rain.update(t, dt, cam);
-    stars.update(t, cam, starOpacity);
+    stars.update(t, starOpacity);
     street.sakura.update(t, dt);
 
     for (const fn of ctx.ticks) fn(t, dt);
@@ -275,12 +251,12 @@ export function buildWorld(envInit: EnvState = { time: 'day', weather: 'clear' }
     // 地面反光同时取决于湿地（晴天几乎看不见）。
     street.signal.update(t, dt, { signage: signageScale, wetness });
 
-    // 灯光随环境缩放。
-    // 用系数相乘而不是设绝对值：update() 里还有门的呼吸、招牌闪烁等
-    // 动态项，相乘才能叠加而不互相覆盖。
-    for (const it of interiorLights) it.l.intensity = it.base * interiorScale;
-    for (const it of shopLights) it.l.intensity = it.base * interiorScale;
-    for (const it of streetLights) it.l.intensity = it.base * Math.max(0.35, interiorScale);
+    const exteriorScale = THREE.MathUtils.lerp(0.18, 1, signageScale);
+    for (const { light, base } of interiorLights) light.intensity = base * interiorScale;
+    for (const { light, base } of shopLights) light.intensity = base * exteriorScale;
+    for (const { light, base } of streetLights) {
+      light.intensity = base * (light === street.streetLamp ? exteriorScale : interiorScale);
+    }
 
     // 招牌呼吸 + 偶发闪烁（再乘上环境的招牌亮度系数）
     const breath = 1 + Math.sin(t * 1.25) * 0.016;
@@ -289,9 +265,11 @@ export function buildWorld(envInit: EnvState = { time: 'day', weather: 'clear' }
       const wobble = Math.sin(t * (2.1 + f.seed) + f.seed * 3.1) * f.amp;
       f.mat.opacity = Math.max(0, (f.base + wobble) * breath * glitch * signageScale);
     }
-    for (const m of store.signMats) {
-      m.opacity = (0.28 + Math.sin(t * 0.6) * 0.02) * glitch * signageScale;
+    for (const material of store.signage.halos) {
+      material.opacity = (0.22 + Math.sin(t * 0.6) * 0.015) * glitch * signageScale;
     }
+    const diffuser = THREE.MathUtils.lerp(0.58, 0.77, signageScale);
+    for (const material of store.signage.prints) material.color.setScalar(diffuser);
 
     // 自动门：用「累计时间」驱动，不依赖单帧 dt，
     // 这样即使在低帧率的 headless 环境里节奏也一致。
@@ -317,8 +295,7 @@ export function buildWorld(envInit: EnvState = { time: 'day', weather: 'clear' }
     if (lLeaf) lLeaf.position.x = -half / 2 - slide;
     if (rLeaf) rLeaf.position.x = half / 2 + slide;
 
-    // 门开时门口光略强
-    street.doorSpill.intensity = 4.2 + doorProgress * 2.4;
+    store.frontSpill.intensity *= 1 + doorProgress * 0.15;
   };
 
   void doorTimer;
@@ -326,7 +303,7 @@ export function buildWorld(envInit: EnvState = { time: 'day', weather: 'clear' }
   void doorPhase;
 
   return {
-    root, ctx, store, street, rain, assembly, update, environment,
+    root, ctx, store, street, rain, assembly, update, environment, wetReflection,
     signal: street.signal,
     wet,
     setSky(zenith: number, horizon: number) {

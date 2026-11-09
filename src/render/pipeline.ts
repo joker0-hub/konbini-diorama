@@ -13,6 +13,7 @@
 
 import * as THREE from 'three';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import type { WetReflection } from '../scene/wet-reflection';
 
 const VERT = /* glsl */ `
   varying vec2 vUv;
@@ -40,6 +41,7 @@ const FRAG = /* glsl */ `
   uniform vec3 uLift;
   uniform vec3 uGain;
   uniform float uExposure;
+  uniform float uShadowDetail;
   uniform float uDebug;
 
   varying vec2 vUv;
@@ -100,8 +102,8 @@ const FRAG = /* glsl */ `
     float g = dot(col, vec3(0.299, 0.587, 0.114));
     col = mix(vec3(g), col, uSat);
 
-    // 对比度：给暗部一点下压，夜景才"沉"
-    col = clamp((col - 0.5) * 1.12 + 0.48, 0.0, 1.0);
+    // 夜景给低亮度保留一条线性曲线，避免沥青和背光立面被对比度截成纯黑。
+    col = clamp(max(col * 1.12 - 0.08, col * uShadowDetail), 0.0, 1.0);
 
     // 暗角
     vec2 q = vUv - 0.5;
@@ -123,7 +125,7 @@ export interface Pipeline {
   debugEdges: (on: boolean) => void;
   /** 环境驱动的调色（lift / gain / 饱和 / 暗角） */
   setEnvironment: (o: {
-    lift: number; gain: number; saturation: number; vignette: number;
+    lift: number; gain: number; saturation: number; vignette: number; shadowDetail: number;
   }) => void;
   /** 场景本身（不含后处理）的渲染统计 */
   sceneStats: { calls: number; triangles: number };
@@ -135,6 +137,7 @@ export function createPipeline(
   renderer: THREE.WebGLRenderer,
   scene: THREE.Scene,
   camera: THREE.PerspectiveCamera,
+  wetReflection: WetReflection,
 ): Pipeline {
   const size = new THREE.Vector2();
   renderer.getSize(size);
@@ -225,6 +228,7 @@ export function createPipeline(
     uLift: { value: new THREE.Color(0x101c33) },
     uGain: { value: new THREE.Color(0xfff4e2) },
     uExposure: { value: 1.0 },
+    uShadowDetail: { value: 0 },
     uDebug: { value: 0 },
   };
 
@@ -264,13 +268,12 @@ export function createPipeline(
      * 不改这一段，画面会立刻露馅：白天还压着夜景的蓝 lift，
      * 或者夜晚被白天的中性 gain 洗掉招牌的暖光。
      */
-    setEnvironment(o: {
-      lift: number; gain: number; saturation: number; vignette: number;
-    }) {
+    setEnvironment(o) {
       uniforms.uLift.value.setHex(o.lift);
       uniforms.uGain.value.setHex(o.gain);
       uniforms.uSat.value = o.saturation;
       uniforms.uVignette.value = o.vignette;
+      uniforms.uShadowDetail.value = o.shadowDetail;
     },
     setSize(w, h) {
       rt.setSize(w, h);
@@ -282,6 +285,7 @@ export function createPipeline(
       maskTarget.setSize(Math.max(1, Math.round(w / 2)), Math.max(1, Math.round(h / 2)));
       uniforms.uResolution.value.set(w, h);
       bloom.setSize(Math.max(1, Math.round(w / 2)), Math.max(1, Math.round(h / 2)));
+      wetReflection.resize(w, h);
     },
     // 第一个参数是累计时间：bloom 只需要 dt，
     // 但保留 `_t` 让签名与调用处一致（也是给后续加时间类效果留的位置）。
@@ -334,10 +338,13 @@ export function createPipeline(
       renderer.clear();
       const beforeCalls = renderer.info.render.calls;
       const beforeTriangles = renderer.info.render.triangles;
+      const capture = wetReflection.captureStats;
+      capture.calls = 0;
+      capture.triangles = 0;
       renderer.render(scene, camera);
       // 在这一刻冻结场景的真实统计
-      sceneStats.calls = renderer.info.render.calls - beforeCalls;
-      sceneStats.triangles = renderer.info.render.triangles - beforeTriangles;
+      sceneStats.calls = renderer.info.render.calls - beforeCalls - capture.calls;
+      sceneStats.triangles = renderer.info.render.triangles - beforeTriangles - capture.triangles;
 
       // 2. bloom 直接加色混合回 rt（needsSwap=false 的通行做法）
       bloom.render(renderer, rt, rt, dt, false);

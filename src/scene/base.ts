@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import { P } from '../core/palette';
 import { addBox, addCyl, addTiled, group, noOutline, uvPlaneGeo } from '../core/geom';
-import { additiveClone, decal, toon, RAMP_SMOOTH } from '../core/materials';
+import { decal, toon, RAMP_SMOOTH } from '../core/materials';
 import * as TX from '../core/textures';
 import { L } from './layout';
 import type { WetEntry } from './wet';
@@ -50,10 +50,7 @@ export function buildBase(root: THREE.Object3D, ctx: SceneCtx): THREE.Group {
   addTiled(g, asphalt, H - L.road.x, L.road.z + H, 4.5,
     (H + L.road.x) / 2, 0.0015, (L.road.z - H) / 2);
 
-  // 湿斑：只在马路上做。铺在粗糙的砖面上时，这块软边深色贴图看起来
-  // 更像"地上有一摊脏东西"而不是水，所以人行道不叠加它，
-  // 改由温湿反光贴（additive）来表达。
-  // 用独立材质：它的 opacity 要跟随天气湿度变化（晴天不能还是湿的）。
+  // 沥青湿了会变深，先压暗底色，再叠加实时倒影。
   const wetMask = new THREE.MeshBasicMaterial({
     color: 0x080b12,
     map: TX.puddleMaskTex(),
@@ -63,6 +60,7 @@ export function buildBase(root: THREE.Object3D, ctx: SceneCtx): THREE.Group {
   });
   const wetMaskA = addTiled(g, wetMask, H * 2, H - L.road.z, 8, 0, 0.004, (H + L.road.z) / 2);
   const wetMaskB = addTiled(g, wetMask, H - L.road.x, L.road.z + H, 8, (H + L.road.x) / 2, 0.005, (L.road.z - H) / 2);
+  wetMaskA.renderOrder = wetMaskB.renderOrder = -2;
   ctx.wet.push({ mesh: wetMaskA, base: 0.34 }, { mesh: wetMaskB, base: 0.34 });
 
   /* ---------------- 人行道（L 形挤出） ---------------- */
@@ -236,49 +234,12 @@ export function buildBase(root: THREE.Object3D, ctx: SceneCtx): THREE.Group {
     tactileStrip(z1 - junctionZ - 0.15, L.walk.xInner + 0.55, (z1 + junctionZ + 0.15) / 2, Math.PI / 2);
   }
 
-  /* ---------------- 湿地反光 ---------------- */
   const junctionX = L.walk.xInner + 0.55, junctionZ = L.walk.zInner + 0.55;
   addBox(g, tactile, 0.3, 0.008, 0.3, junctionX, L.curb + 0.016, junctionZ, { cast: false });
   for (let ix = 0; ix < 4; ix++) for (let iz = 0; iz < 4; iz++) {
     addCyl(g, tactileRib, 0.013, 0.016, 0.006, junctionX - 0.105 + ix * 0.07,
       L.curb + 0.024, junctionZ - 0.105 + iz * 0.07, { seg: 8, cast: false });
   }
-  // 关键：路面 y≈0，人行道面 y=curb（0.14）。
-  // 反光片必须分别贴在这两个高度上 —— 统一放在 0.024 会整个沉到人行道下面，
-  // 于是玻璃里透出的暖光在地上完全没有倒影，画面就会显得"干"。
-  const warm = TX.wetSmearTex(true);
-  const cool = TX.wetSmearTex(false);
-  const ROAD_Y = 0.022;
-  const WALK_Y = L.curb + 0.008;
-  const smear = (
-    map: THREE.Texture, w: number, d: number, x: number, z: number,
-    op: number, y: number, ry = 0, color = 0xffffff,
-  ) => {
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), additiveClone(map, color, op));
-    m.rotation.x = -Math.PI / 2;
-    m.rotation.z = ry;
-    m.position.set(x, y, z);
-    m.renderOrder = 3;
-    g.add(m);
-    noOutline(m);
-    // 每个反光片独立材质，湿度变化时逐片淡出
-    ctx.wet.push({ mesh: m, base: op });
-  };
-  // 人行道上的主倒影（便利店灯光 → 地面）
-  smear(warm, 10.5, 6.4, -1.4, 1.9, 0.85, WALK_Y);
-  smear(warm, 6.0, 6.0, 3.5, 0.6, 0.5, WALK_Y);
-  smear(cool, 5.4, 4.6, 3.3, -3.0, 0.28, WALK_Y, Math.PI / 2);
-  // 门口的强反射
-  smear(warm, 5.0, 4.6, 1.0, 3.0, 0.62, WALK_Y, 0, 0xfff2d8);
-  // 马路上的倒影
-  smear(warm, 6.0, 5.0, -1.0, 5.4, 0.4, ROAD_Y);
-  smear(cool, 5.0, 4.2, 6.0, 5.0, 0.24, ROAD_Y);
-  smear(cool, 4.4, 3.6, -5.8, 6.4, 0.2, ROAD_Y);
-  // 路灯下的长条反光
-  smear(warm, 2.4, 5.0, -5.7, 2.4, 0.42, WALK_Y, 0, 0xffd9a3);
-  // 小巷口
-  smear(warm, 2.2, 3.0, -6.6, -1.5, 0.3, WALK_Y, 0, 0xff9fbf);
-
   /* ---------------- 积水涟漪 ---------------- */
   const ripple = makeRipples();
   ripple.position.set(0, 0.028, 0);

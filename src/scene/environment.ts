@@ -56,6 +56,7 @@ export interface EnvPreset {
   gain: number;
   exposure: number;
   saturation: number;
+  shadowDetail: number;
   bloomStrength: number;
   bloomThreshold: number;
   vignette: number;
@@ -79,8 +80,7 @@ type TimePreset = Omit<EnvPreset, 'rainDensity' | 'snowAmount' | 'wetness' | 'st
  * 三套时段预设。
  *
  * 数值不是随手调的，每条都有理由：
- * - 夜晚 bloomThreshold 要低（0.86），招牌才能糊出光晕；
- *   白天太阳把场景整体推亮，阈值必须抬高（1.15）否则整个画面发雾。
+ * - 夜晚降低 bloom 阈值，让灯管和灯罩发光。白天提高阈值，保住场景对比度。
  * - 白天 hemi 强度反而要低于夜晚的"总亮度"感受 ——
  *   因为白天靠方向光出明暗，环境光一高就没有形体了。
  * - 黄昏是最难调的一档：光源低、色温暖，但天光还有蓝，
@@ -107,6 +107,7 @@ const TIME: Record<TimeOfDay, TimePreset> = {
     gain: 0xfff8ee,
     exposure: 1.08,
     saturation: 1.02,
+    shadowDetail: 0,
     bloomStrength: 0.16,
     bloomThreshold: 1.15,
     vignette: 0.32,
@@ -137,6 +138,7 @@ const TIME: Record<TimeOfDay, TimePreset> = {
     gain: 0xfff2e6,
     exposure: 0.96,
     saturation: 0.96,
+    shadowDetail: 0,
     bloomStrength: 0.3,
     bloomThreshold: 0.96,
     vignette: 0.44,
@@ -145,27 +147,28 @@ const TIME: Record<TimeOfDay, TimePreset> = {
     starBase: 0.26,
   },
   night: {
-    hemiSky: 0x5a76b4,
-    hemiGround: 0x1a2230,
-    hemiIntensity: 0.55,
-    keyColor: 0xa8bcff,
-    keyIntensity: 0.7,
+    hemiSky: 0x8198bd,
+    hemiGround: 0x343d50,
+    hemiIntensity: 0.68,
+    keyColor: 0xb6c7ef,
+    keyIntensity: 0.73,
     // 月亮留在后上方，和店里的暖光形成冷暖对撞
     keyPos: [-11, 16, -9],
-    fillColor: 0x6d8cc8,
-    fillIntensity: 0.4,
+    fillColor: 0x8fa9ce,
+    fillIntensity: 0.49,
     fogColor: 0x0b1120,
     fogDensity: 0.018,
     clearColor: 0x05070d,
     skyZenith: 0x070c1a,
     skyHorizon: 0x16233c,
-    lift: 0x101c33,
+    lift: 0x111b2b,
     gain: 0xfff4e2,
     exposure: 1.0,
-    saturation: 1.14,
-    bloomStrength: 0.42,
-    bloomThreshold: 0.86,
-    vignette: 0.55,
+    saturation: 1.07,
+    shadowDetail: 0.27,
+    bloomStrength: 0.38,
+    bloomThreshold: 0.88,
+    vignette: 0.46,
     signage: 1.0,
     interior: 1.0,
     starBase: 1.0,
@@ -329,6 +332,7 @@ function compose(time: TimeOfDay, weather: Weather): EnvPreset {
     gain: T.gain,
     exposure: T.exposure * W.exposure,
     saturation: T.saturation * W.saturation,
+    shadowDetail: T.shadowDetail,
     bloomStrength: T.bloomStrength * W.bloomScale,
     bloomThreshold: T.bloomThreshold + W.bloomThresholdAdd,
     vignette: T.vignette * W.vignette,
@@ -366,6 +370,7 @@ function lerpPreset(a: EnvPreset, b: EnvPreset, t: number): EnvPreset {
     gain: lc(a.gain, b.gain),
     exposure: ln(a.exposure, b.exposure),
     saturation: ln(a.saturation, b.saturation),
+    shadowDetail: ln(a.shadowDetail, b.shadowDetail),
     bloomStrength: ln(a.bloomStrength, b.bloomStrength),
     bloomThreshold: ln(a.bloomThreshold, b.bloomThreshold),
     vignette: ln(a.vignette, b.vignette),
@@ -414,7 +419,7 @@ export interface RenderTargets {
     bloom: { strength: number; threshold: number };
     exposure: { value: number };
     setEnvironment: (o: {
-      lift: number; gain: number; saturation: number; vignette: number;
+      lift: number; gain: number; saturation: number; vignette: number; shadowDetail: number;
     }) => void;
   };
 }
@@ -664,6 +669,7 @@ export class Environment {
       gain: p.gain,
       saturation: p.saturation,
       vignette: p.vignette,
+      shadowDetail: p.shadowDetail,
     });
   }
 }

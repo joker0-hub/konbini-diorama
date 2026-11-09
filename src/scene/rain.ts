@@ -320,31 +320,24 @@ export function buildGlassRain(
  * ============================================================ */
 
 export function buildLightCone(
-  root: THREE.Object3D,
-  x: number,
-  y: number,
-  z: number,
+  light: THREE.SpotLight,
   radius: number,
   height: number,
-  color: number,
-  opacity: number,
-): THREE.Mesh {
+): THREE.Mesh<THREE.ConeGeometry, THREE.ShaderMaterial> {
   const mat = new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
     side: THREE.DoubleSide,
     uniforms: {
-      uColor: { value: new THREE.Color(color) },
-      uOpacity: { value: opacity },
+      uColor: { value: light.color },
+      uOpacity: { value: 0 },
     },
     vertexShader: /* glsl */ `
-      varying vec3 vPos;
       varying vec3 vNormal;
       varying vec2 vUv;
       void main() {
         vUv = uv;
-        vPos = position;
         vNormal = normalize(normalMatrix * normal);
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
@@ -352,20 +345,19 @@ export function buildLightCone(
     fragmentShader: /* glsl */ `
       uniform vec3 uColor;
       uniform float uOpacity;
-      varying vec3 vPos;
       varying vec3 vNormal;
       varying vec2 vUv;
       void main() {
         // vUv.y: 0 = 底部（地面），1 = 顶部（灯）
         float v = vUv.y;
         // 越靠灯越亮
-        float along = smoothstep(0.0, 1.0, v);
+        float along = smoothstep(0.0, 0.9, v);
         // 边缘柔化：正对镜头的面片最亮
         float edge = pow(abs(dot(normalize(vNormal), vec3(0.0, 0.0, 1.0))), 1.2);
         // 关键：底部必须淡出。
         // 锥体底面贴到地面会画出一圈硬边的圆盘，看起来像渲染错误而不是体积光。
         float foot = smoothstep(0.0, 0.35, v);
-        float a = (1.0 - along) * edge * foot * uOpacity;
+        float a = along * edge * foot * uOpacity;
         if (a < 0.002) discard;
         gl_FragColor = vec4(uColor, a);
       }
@@ -373,9 +365,11 @@ export function buildLightCone(
   });
   const geo = new THREE.ConeGeometry(radius, height, 20, 1, true);
   const m = new THREE.Mesh(geo, mat);
-  m.position.set(x, y - height / 2, z);
+  const direction = light.target.position.clone().sub(light.position).normalize();
+  m.position.copy(direction).multiplyScalar(height / 2);
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), direction);
   m.renderOrder = 9;
   m.layers.set(1);
-  root.add(m);
+  light.add(m);
   return m;
 }

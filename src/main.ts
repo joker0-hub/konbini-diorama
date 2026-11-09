@@ -105,7 +105,7 @@ camera.layers.enable(1);
 camera.layers.enable(2);
 
 /* ---------------- 后处理管线 ---------------- */
-const pipeline = createPipeline(renderer, scene, camera);
+const pipeline = createPipeline(renderer, scene, camera, world.wetReflection);
 
 // 环境要同时驱动灯光（world 内）与雾/背景/后处理（这里）。
 // 管线建好后把渲染侧引用交进去，并立刻按当前预设刷一次。

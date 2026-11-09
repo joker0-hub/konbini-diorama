@@ -65,15 +65,15 @@ export function buildInterior(root: THREE.Object3D, ctx: SceneCtx): void {
   const cream = toon(P.storeCream);
 
   /* ================= 天花灯箱 ================= */
-  const panelMat = glow(0xfffdf2, 1.0);
+  const panelMat = glow(0xfff9ed, 1.32);
   const panelW = X1 - X0 - 1.2;
   const panelCX = (X0 + X1) / 2 - 0.15;
   for (const z of [-5.9, -4.3, -2.7, -1.1]) {
     addBox(g, toon(0xb9bec6), panelW + 0.14, 0.06, 0.42, panelCX, S.ceilY - 0.14, z, { cast: false, receive: false });
-    addBox(g, panelMat, panelW, 0.03, 0.28, panelCX, S.ceilY - 0.1, z, { cast: false, receive: false });
+    addBox(g, panelMat, panelW, 0.03, 0.28, panelCX, S.ceilY - 0.165, z, { cast: false, receive: false });
     for (let i = 0; i < 4; i++) {
       addBox(g, toon(0xb9bec6), 0.035, 0.04, 0.3,
-        panelCX - panelW / 2 + (panelW * (i + 0.5)) / 4, S.ceilY - 0.105, z, { cast: false, receive: false });
+        panelCX - panelW / 2 + (panelW * (i + 0.5)) / 4, S.ceilY - 0.17, z, { cast: false, receive: false });
     }
   }
   addBox(g, glow(0xfff6e4, 0.16), X1 - X0 - 0.3, 0.02, Z1 - Z0 - 0.3,
@@ -90,21 +90,24 @@ export function buildInterior(root: THREE.Object3D, ctx: SceneCtx): void {
   }
 
   /* ================= 室内光源 ================= */
-  // 点光源会叠加：10 盏 intensity=2 会把浅色货架推过 1.0，
-  // toon 色阶全落在最高档，商品颜色被冲成白色。只用 3 盏 + 1 盏冷色补光。
-  const lights: [number, number, number, number][] = [
-    [-3.6, 1.9, -4.6, 2.6], // 后场（冷柜侧）
-    [-1.0, 2.2, -2.0, 2.4], // 中段（货架）
-    [1.0, 1.9, 0.0, 2.2],   // 前区（收银/门口）
+  // 灯箱从天花向下照，后排两侧分别照亮冷柜和便当柜。
+  const lights = [
+    [-3.35, -5.9, 6.6],
+    [0.55, -5.9, 4.4],
+    [-1.45, -2.7, 7.2],
+    [0.65, -1.1, 8.4],
   ];
-  for (const [x, y, z, i] of lights) {
-    const l = new THREE.PointLight(0xfff2da, i, 9.5, 1.7);
-    l.position.set(x, y, z);
-    g.add(l);
+  for (const [x, z, intensity] of lights) {
+    const light = new THREE.SpotLight(0xfff1e0, intensity, 5.6, 1.1, 0.72, 1.8);
+    light.position.set(x, S.ceilY - 0.19, z);
+    light.target.position.set(x, FY, z + 0.32);
+    g.add(light, light.target);
   }
-  const coolFill = new THREE.PointLight(0xcfe6ff, 1.4, 5.0, 2);
+  const coolFill = new THREE.PointLight(0xd9ecff, 1.25, 3.2, 2);
   coolFill.position.set(-4.0, 1.4, -5.6);
-  g.add(coolFill);
+  const checkoutFill = new THREE.PointLight(0xffecd5, 2.25, 3.8, 1.7);
+  checkoutFill.position.set(0.18, 2.07, -0.15);
+  g.add(coolFill, checkoutFill);
 
   /* ================= 后墙：饮料冷柜 ================= */
   {

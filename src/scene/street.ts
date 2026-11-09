@@ -28,9 +28,7 @@ const CURB = L.curb;
 export interface StreetRefs {
   /** 街角信号灯（车灯 + 行人灯 + 循环） */
   signal: SignalHandles;
-  streetLamp: THREE.PointLight;
-  /** 门口补光（随门开合变化） */
-  doorSpill: THREE.PointLight;
+  streetLamp: THREE.SpotLight;
   sakura: SakuraTreeHandles;
   vending: VendingHandles[];
   recyclingBins: THREE.Object3D[];
@@ -58,20 +56,7 @@ export function buildStreet(root: THREE.Object3D, ctx: SceneCtx): StreetRefs {
   }
 
   /* ================= 路灯 ================= */
-  const lampX = -6.5;
-  const lampZ = L.walk.zOuter - 0.55;
-  buildStreetLamp(g, lampX, lampZ, ctx);
-  const streetLamp = new THREE.PointLight(0xffcf94, 13, 12, 2);
-  streetLamp.position.set(lampX + 0.8, 4.05, lampZ - 0.2);
-  // The directional light supplies the street shadows. A point-light shadow
-  // renders the whole scene six more times for this small pool of warm light.
-  streetLamp.castShadow = false;
-  g.add(streetLamp);
-
-  // 门口溢光（随自动门开合微弱变化）
-  const doorSpill = new THREE.PointLight(0xffd9a0, 5.0, 7.0, 2);
-  doorSpill.position.set((L.door.x0 + L.door.x1) / 2, 2.2, L.store.z1 + 1.4);
-  g.add(doorSpill);
+  const streetLamp = buildStreetLamp(g, -6.5, L.walk.zOuter - 0.55, ctx);
 
   /* ================= 电线杆 + 电线 ================= */
   // The pole builder owns both pole positions and exact conductor terminals.
@@ -141,7 +126,7 @@ export function buildStreet(root: THREE.Object3D, ctx: SceneCtx): StreetRefs {
   ctx.wet.push({ mesh: gutter, base: 0.24 });
 
   ctx.pieces.push(g);
-  return { signal, streetLamp, doorSpill, sakura, vending, recyclingBins };
+  return { signal, streetLamp, sakura, vending, recyclingBins };
 }
 
 /* ------------------------------------------------------------------ */
@@ -276,7 +261,7 @@ function buildTreePit(parent: THREE.Object3D, cx: number, cz: number, baseY: num
   return g;
 }
 
-function buildStreetLamp(parent: THREE.Object3D, x: number, z: number, ctx: SceneCtx): void {
+function buildStreetLamp(parent: THREE.Object3D, x: number, z: number, ctx: SceneCtx): THREE.SpotLight {
   const pole = toon(P.poleConcrete);
   addCyl(parent, pole, 0.07, 0.095, 4.5, x, CURB, z, { seg: 12 });
   addCyl(parent, toon(0x282d36), 0.13, 0.15, 0.22, x, CURB, z, { seg: 12 });
@@ -286,28 +271,34 @@ function buildStreetLamp(parent: THREE.Object3D, x: number, z: number, ctx: Scen
   const head = group(parent, x + 0.88, CURB + 4.5, z - 0.24);
   addBox(head, toon(0x363d4a), 0.15, 0.11, 0.48, 0, 0, 0, { r: 0.03 });
   addBox(head, toon(0x282d36), 0.2, 0.065, 0.54, 0, 0.09, 0, { r: 0.03 });
-  const face = new THREE.Mesh(planeGeo(0.38, 0.15), glow(0xfff0c8, 2.2));
+  const face = new THREE.Mesh(planeGeo(0.126, 0.39), glow(0xffe6bf, 1.9));
   face.rotation.x = Math.PI / 2;
-  face.position.set(0, -0.055, 0);
+  face.position.y = -0.008;
   head.add(face);
   noOutline(face);
+  const light = new THREE.SpotLight(0xffd39e, 35, 8.0, 0.80, 0.78);
+  light.name = 'street-lamp-downlight';
+  light.position.y = -0.028;
+  light.target.position.set(0.3, -head.position.y, 1.4);
+  head.add(light, light.target);
 
-  const halo = new THREE.Mesh(planeGeo(1.7, 1.7), additiveClone(radialGlowTex(), 0xffd9a0, 0.44));
-  halo.position.set(0, -0.22, 0);
+  const halo = new THREE.Mesh(planeGeo(1.25, 1.25), additiveClone(radialGlowTex(), 0xffd9a0, 0.23));
+  halo.position.set(0, -0.085, 0);
   halo.rotation.x = -Math.PI / 2;
   halo.renderOrder = 8;
   head.add(halo);
   noOutline(halo);
-  ctx.flickers.push({ mat: halo.material as THREE.MeshBasicMaterial, base: 0.44, seed: 4.1, amp: 0.03 });
+  ctx.flickers.push({ mat: halo.material as THREE.MeshBasicMaterial, base: 0.23, seed: 4.1, amp: 0.014 });
 
   // 灯下湿地反光
-  const refl = new THREE.Mesh(planeGeo(1.5, 4.6), additiveClone(TX.wetSmearTex(true), 0xffd9a0, 0.46));
+  const refl = new THREE.Mesh(planeGeo(1.5, 4.6), additiveClone(TX.wetSmearTex(true), 0xffd9a0, 0.19));
   refl.rotation.x = -Math.PI / 2;
   refl.position.set(x + 0.88, 0.026, z + 1.4);
   refl.renderOrder = 3;
   parent.add(refl);
   noOutline(refl);
-  ctx.wet.push({ mesh: refl, base: 0.46 });
+  ctx.wet.push({ mesh: refl, base: 0.19 });
+  return light;
 }
 
 function buildRoadSigns(parent: THREE.Object3D): void {
