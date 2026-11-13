@@ -913,7 +913,7 @@ check(
   `curb=${feet.curb} poles=${feet.poles.join(',')}`,
 );
 check(
-  '伞架换成参考图的黑框 + 四把伞（黑/蓝/红/白），落地且不挡门',
+  '四槽伞架及四把雨伞（黑/蓝/红/透明），落地且不挡门',
   storefront && storefront.umbrella &&
     Math.abs(storefront.umbrella.bottom - (storefront.walkTop + 0.003)) < 0.01 &&
     storefront.umbrellaNames.length === 4 &&

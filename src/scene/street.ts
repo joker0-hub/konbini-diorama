@@ -19,7 +19,7 @@ import { buildVendingMachine, type VendingHandles } from './vending';
 import { BottlePhysics } from '../core/bottle-physics';
 import { buildRecyclingBin } from './recycling-bin';
 import { buildBicycle } from './bicycle';
-import { buildUmbrellaStand } from './umbrella-stand';
+import { buildUmbrellaStand, type UmbrellaStand } from './umbrella-stand';
 import { buildUtilityPoles } from './utility-poles';
 import { buildPosterFrame } from './advertising';
 
@@ -32,6 +32,7 @@ export interface StreetRefs {
   sakura: SakuraTreeHandles;
   vending: VendingHandles[];
   recyclingBins: THREE.Object3D[];
+  umbrellaStand: UmbrellaStand;
 }
 
 export function buildStreet(root: THREE.Object3D, ctx: SceneCtx): StreetRefs {
@@ -105,7 +106,9 @@ export function buildStreet(root: THREE.Object3D, ctx: SceneCtx): StreetRefs {
   }
 
   /* ================= 门口伞架 + 垃圾桶 ================= */
-  buildUmbrellaStand(g, L.door.x0 - 0.85, L.store.z1 + 0.7);
+  // Leave the tactile strip along the windows clear and keep the stand left of the mat.
+  const umbrellaStand = buildUmbrellaStand(g, L.door.x0 - 0.85, L.store.z1 + 0.96);
+  ctx.ticks.push(umbrellaStand.update);
   buildTrashBins(g, L.store.x1 + 0.75, L.store.z1 + 1.5, bottlePhysics, recyclingBins);
 
   /* ================= 樱花树（板块左下角） ================= */
@@ -126,7 +129,7 @@ export function buildStreet(root: THREE.Object3D, ctx: SceneCtx): StreetRefs {
   ctx.wet.push({ mesh: gutter, base: 0.24 });
 
   ctx.pieces.push(g);
-  return { signal, streetLamp, sakura, vending, recyclingBins };
+  return { signal, streetLamp, sakura, vending, recyclingBins, umbrellaStand };
 }
 
 /* ------------------------------------------------------------------ */

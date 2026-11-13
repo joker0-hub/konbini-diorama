@@ -188,6 +188,95 @@ try {
     reflection.captures.length === 1 && reflection.captures.every(c =>
       c.mirrored && c.target && !c.shadows && !c.rain && !c.recursive), reflection);
 
+  const rainSurfaces = await page.evaluate(() => {
+    const { world, env, camera } = window.__konbini;
+    env.set({ weather: 'rain' }, true);
+    const layers = world.store.glazing.map(pane => pane.getObjectByName('glass-rain'));
+    const doors = layers.filter(layer => layer.parent.name === 'store-glass-door');
+    world.update(0, 0, camera);
+    const closed = doors.map(layer => layer.getWorldPosition(camera.position.clone()).x);
+    world.update(5.5, 0, camera);
+    const open = doors.map(layer => layer.getWorldPosition(camera.position.clone()).x);
+    const wet = world.wet.entries;
+    const decals = [...world.root.getObjectByName('road-markings').children, ...wet.map(e => e.mesh)];
+    const painted = decals.every(mesh => (mesh.layers.mask & 1) === 0 && !mesh.material.depthWrite);
+    const attached = layers.every(layer => layer.visible && layer.geometry === layer.parent.geometry &&
+      layer.position.z > 0 && layer.material.uniforms.uRain.value === 1 && layer.layers.mask === 2);
+    env.set({ weather: 'clear' }, true);
+    return { doors: doors.length, closed, open, painted, attached, dry: layers.every(layer => !layer.visible) };
+  });
+  check('road decals stay out of outline depth', rainSurfaces.painted, rainSurfaces);
+  check('rain follows both sliding door panes and clears with the weather', rainSurfaces.attached && rainSurfaces.dry &&
+    rainSurfaces.doors === 2 && rainSurfaces.open[0] < rainSurfaces.closed[0] - 0.25 &&
+    rainSurfaces.open[1] > rainSurfaces.closed[1] + 0.25, rainSurfaces);
+
+  await page.evaluate(() => {
+    const app = window.__konbini;
+    app.controls.minDistance = 1;
+    app.view([0.7, 1.75, 4.9], [-0.71, 0.79, 1.74]);
+  });
+  await frames();
+  const handle = await page.evaluate(() => {
+    const { world, camera } = window.__konbini;
+    const stand = world.street.umbrellaStand;
+    const umbrella = stand.umbrellas[2];
+    const nudge = stand.nudge;
+    stand.nudge = (object, direction) => {
+      if (object === umbrella) umbrella.userData.taps = (umbrella.userData.taps ?? 0) + 1;
+      nudge(object, direction);
+    };
+    const point = umbrella.localToWorld(camera.position.clone().set(0.043, 1.02, 0.065)).project(camera);
+    return { x: (point.x * 0.5 + 0.5) * innerWidth, y: (0.5 - point.y * 0.5) * innerHeight };
+  });
+  await page.mouse.click(handle.x, handle.y);
+  await page.waitForFunction(() => window.__konbini.world.street.umbrellaStand.umbrellas[2].userData.taps === 1);
+  // Let the first tap settle so the handle returns to the same screen position.
+  await new Promise(resolve => setTimeout(resolve, 1150));
+  await page.touchscreen.tap(handle.x, handle.y);
+  await page.waitForFunction(() => window.__konbini.world.street.umbrellaStand.umbrellas[2].userData.taps === 2);
+  check('the umbrella handle responds to mouse and touch', true);
+
+  const physics = await page.evaluate(() => {
+    const app = window.__konbini;
+    const stand = app.world.street.umbrellaStand;
+    const umbrella = stand.umbrellas[2];
+    const trayEffects = app.scene.getObjectByName('stand-drainage');
+    const dt = 1 / 120;
+    for (let i = 0; i < 240; i++) stand.update(i * dt, dt);
+    const tip = umbrella.position.clone();
+    const rest = umbrella.rotation.clone();
+    stand.nudge(umbrella, app.camera.position.clone().set(1, 0, 0));
+    let maxTilt = 0;
+    let maxDisplacement = 0;
+    for (let i = 0; i < 360; i++) {
+      stand.update(i * dt, dt);
+      maxTilt = Math.max(maxTilt, Math.hypot(umbrella.rotation.x, umbrella.rotation.z));
+      maxDisplacement = Math.max(maxDisplacement, Math.abs(umbrella.rotation.z - rest.z));
+    }
+    const settled = Math.abs(umbrella.rotation.z - rest.z) < 0.001;
+    app.env.set({ weather: 'rain' }, true);
+    let falling = false;
+    let splash = false;
+    let previousY = 0;
+    const [drop, ring] = trayEffects.children;
+    for (let i = 0; i < 180; i++) {
+      stand.update(i * dt, dt);
+      if (drop.visible) {
+        if (previousY > drop.position.y) falling = true;
+        previousY = drop.position.y;
+      }
+      if (ring.visible && falling) splash = ring.position.y < 0.11;
+    }
+    const wind = Math.abs(umbrella.rotation.x - rest.x) > 0.001;
+    app.env.set({ weather: 'clear' }, true);
+    return { maxTilt, maxDisplacement, settled, seated: tip.equals(umbrella.position),
+      falling, splash, wind, dry: !trayEffects.visible };
+  });
+  check('umbrellas react to impulses and wind, stay seated and settle', physics.maxTilt < 0.075 &&
+    physics.maxDisplacement > 0.04 && physics.settled && physics.seated && physics.wind, physics);
+  check('umbrella runoff falls into the tray and splashes in rain', physics.falling && physics.splash && physics.dry, physics);
+  await lodLevels([9.6, 12.4, 17.6], [-2.6, 0.9, 0.6]);
+
   const lighting = await page.evaluate(async () => {
     const { scene, world, env } = window.__konbini;
     const { entranceLight, frontSpill, signage } = world.store;
@@ -238,5 +327,5 @@ try {
   await frames(3);
   const size = await page.evaluate(() => ({ ratio: window.__konbini.renderer.getPixelRatio(), width: innerWidth, height: innerHeight }));
   check('large viewports respect the render pixel budget', size.ratio < 2 && size.width * size.height * size.ratio ** 2 <= 6_000_001, size);
-  console.log('19 scene checks passed');
+  console.log('24 scene checks passed');
 } finally { await browser.close(); }

@@ -9,7 +9,8 @@ import { buildBase, type SceneCtx } from './base';
 import { buildStore, DOOR, type StoreParts } from './store';
 import { buildInterior } from './interior';
 import { buildStreet, type StreetRefs } from './street';
-import { buildDrips, buildGlassRain, buildLightCone, buildRain, type RainHandles } from './rain';
+import { buildDrips, buildLightCone, buildRain, type RainHandles } from './rain';
+import { buildGlassRain } from './glass-rain';
 import { Assembly, phaseWindow } from './assembly';
 import { mergeStaticMeshes } from './merge';
 import { Environment, type EnvState } from './environment';
@@ -79,7 +80,7 @@ export function buildWorld(envInit: EnvState = { time: 'day', weather: 'clear' }
   fill.position.set(12, 5, 14);
   root.add(fill);
   /* ---------------- 各层 ---------------- */
-  const baseObj = buildBase(root, ctx);
+  const { root: baseObj, markings } = buildBase(root, ctx);
   const store = buildStore(root, ctx);
   buildInterior(root, ctx);
   const street = buildStreet(root, ctx);
@@ -88,8 +89,9 @@ export function buildWorld(envInit: EnvState = { time: 'day', weather: 'clear' }
   const rainLayer = group(root, 0, 0, 0, 'rain-layer');
   const rain = buildRain(rainLayer, { count: 3000, height: 10, area: 16 });
   rainLayer.traverse((o) => o.layers.set(1));
-  buildDrips(root, ctx);
-  buildGlassRain(root, store.frontGlass, store.sideGlass, ctx);
+  const drips = buildDrips(root, ctx);
+  const glassRain = buildGlassRain(store.glazing);
+  ctx.ticks.push((t) => glassRain.setTime(t));
   const lightCones = [
     buildLightCone(store.entranceLight, 2.0, 2.33),
     buildLightCone(street.streetLamp, 2.4, 4.4),
@@ -137,7 +139,7 @@ export function buildWorld(envInit: EnvState = { time: 'day', weather: 'clear' }
     merged = true;
     mergeStaticMeshes(root, {
       // 这些子树里的网格每帧都在动（或被单独控制），不能烘焙
-      excludeNames: ['auto-door', 'rain-layer', 'snow-layer', 'sakura-tree'],
+      excludeNames: ['auto-door', 'rain-layer', 'snow-layer', 'sakura-tree', 'umbrella-stand'],
     });
   };
   assembly.onDone = doMerge;
@@ -146,19 +148,14 @@ export function buildWorld(envInit: EnvState = { time: 'day', weather: 'clear' }
   const stars = buildStarfield();
   root.add(stars.mesh);
 
-  /* ---------------- 雨相关层 ---------------- */
-  // 晴/雨切换要同时处理：雨丝、屋檐滴水、玻璃雨痕、体积光锥。
-  // 只关雨丝的话，晴天里玻璃上还在流雨、屋檐还在滴水，破绽很明显。
-  const rainLayers: THREE.Object3D[] = [];
-  for (const n of ['rain-streaks', 'drips-layer', 'glass-rain-front', 'glass-rain-side']) {
-    const o = root.getObjectByName(n);
-    if (o) rainLayers.push(o);
-  }
   /* ---------------- 湿地面：跟随天气淡入淡出 ---------------- */
   // 反光片/积水暗斑/涟漪都在构建时登记到 ctx.wet；
   // 这里统一交给一个控制器，避免"晴天还是湿的"。
   const wet = createWet(ctx.wet);
-  const wetReflection = createWetReflection(baseObj, [...rainLayers, ...lightCones]);
+  const wetReflection = createWetReflection(baseObj, [
+    rain.mesh, drips.root, ...glassRain.layers, ...lightCones, ...ctx.wet.map(({ mesh }) => mesh),
+    markings,
+  ]);
   ctx.ticks.push((t) => wetReflection.setTime(t));
 
   /* ---------------- 环境：时段 × 天气 ---------------- */
@@ -196,12 +193,10 @@ export function buildWorld(envInit: EnvState = { time: 'day', weather: 'clear' }
       },
       setRainDensity(v) {
         rain.setDensity(v);
-        // 密度为 0 时直接隐藏整组。只把 alpha 调到 0 的话，
-        // 透明物体仍然参与排序与绘制，晴天会白白多出几趟 pass；
-        // 更重要的是"滴水/玻璃雨痕"这些不是靠 uOpacity 控制的，
-        // 必须整组关掉才不会在晴天里继续下雨。
+        drips.setDensity(v);
+        glassRain.setDensity(v);
+        street.umbrellaStand.setRain(v);
         const on = v > 0.02;
-        for (const l of rainLayers) l.visible = on;
         const coneOpacity = v * THREE.MathUtils.lerp(0.008, 0.052, signageScale);
         for (const cone of lightCones) {
           cone.visible = on;

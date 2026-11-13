@@ -31,14 +31,16 @@ const fragmentShader = /* glsl */ `
 
   void main() {
     vec2 p = vWorld.xz;
-    float puddle = smoothstep(0.18, 0.68, texture2D(uPuddles, fract(p / 7.3 + 0.4)).r);
+    float puddle = smoothstep(0.18, 0.68, texture2D(uPuddles, p / 7.3 + 0.5).r);
     float roughness = mix(1.0 - puddle * 0.75, 0.86, vSidewalk);
     vec2 wave = vec2(
       sin(p.x * 9.0 + p.y * 6.0 + uTime * 3.7) + 0.4 * sin(p.y * 19.0 - uTime * 6.0),
       sin(p.y * 13.0 - p.x * 5.0 - uTime * 4.6) + 0.4 * sin(p.x * 21.0 + uTime * 7.0)
     );
     vec2 uv = vReflection.xy / vReflection.w;
-    uv += wave * vec2(0.0017, 0.0009) * uRain;
+    float footprint = max(length(dFdx(p)), length(dFdy(p)));
+    float waveStrength = 1.0 - smoothstep(0.025, 0.11, footprint);
+    uv += wave * vec2(0.0017, 0.0009) * uRain * waveStrength;
     vec2 blur = vec2(0.0045, 0.0028) * roughness;
     vec3 reflected = texture2D(tDiffuse, uv).rgb * 0.4;
     reflected += texture2D(tDiffuse, uv + vec2(blur.x, 0.0)).rgb * 0.15;

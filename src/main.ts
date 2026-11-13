@@ -258,14 +258,23 @@ resetCameraButton.addEventListener('click', () => {
   sound.play('ui');
 });
 sceneActions.prepend(resetCameraButton);
-// Register future clickable objects here: every activation shares the same camera approach.
+const umbrellaStand = world.street.umbrellaStand;
 const interactions = [
   ...world.street.vending.map((machine) => ({
     pickRoot: machine.pickRoot,
-    open: () => { sound.play('ui'); vendingPanel.open(machine); },
+    activate: () => rig.focus(machine.pickRoot, () => { sound.play('ui'); vendingPanel.open(machine); }),
     checkOcclusion: true,
   })),
-  { pickRoot: world.street.sakura.pickRoot, open: () => { sound.play('ui'); sakuraPanel.setOpen(true); }, checkOcclusion: false },
+  {
+    pickRoot: world.street.sakura.pickRoot,
+    activate: () => rig.focus(world.street.sakura.pickRoot, () => { sound.play('ui'); sakuraPanel.setOpen(true); }),
+    checkOcclusion: false,
+  },
+  ...umbrellaStand.umbrellas.map((umbrella) => ({
+    pickRoot: umbrella,
+    activate: (direction: THREE.Vector3) => umbrellaStand.nudge(umbrella, direction),
+    checkOcclusion: true,
+  })),
 ];
 function canInteract(): boolean {
   return world.assembly.finished && !rig.isFocusing() && !vendingPanel.isOpen() &&
@@ -283,8 +292,8 @@ function isWorldVisible(object: THREE.Object3D): boolean {
   return true;
 }
 
-/** Solid scene objects block purchases through the building or street furniture. */
-function isPurchaseBlocker(hit: THREE.Intersection): boolean {
+/** Solid scene objects block clicks through the building or street furniture. */
+function isInteractionBlocker(hit: THREE.Intersection): boolean {
   const mesh = hit.object as THREE.Mesh;
   if (!mesh.isMesh || mesh.userData.vendingPick || mesh.userData.recyclingPick || !isWorldVisible(mesh)) return false;
   const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
@@ -328,11 +337,11 @@ canvas.addEventListener('pointerup', (event) => {
     if (!interaction) continue;
     if (interaction.checkOcclusion) {
       sakuraRaycaster.far = Math.max(0, hit.distance - 0.025);
-      const blocked = sakuraRaycaster.intersectObject(world.root, true).some(isPurchaseBlocker);
+      const blocked = sakuraRaycaster.intersectObject(world.root, true).some(isInteractionBlocker);
       sakuraRaycaster.far = Infinity;
       if (blocked) continue;
     }
-    rig.focus(interaction.pickRoot, interaction.open);
+    interaction.activate(sakuraRaycaster.ray.direction);
     return;
   }
 });

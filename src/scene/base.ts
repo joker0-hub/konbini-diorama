@@ -7,7 +7,7 @@
 
 import * as THREE from 'three';
 import { P } from '../core/palette';
-import { addBox, addCyl, addTiled, group, noOutline, uvPlaneGeo } from '../core/geom';
+import { addBox, addCyl, flatPolygon, group, noOutline, uvPlaneGeo } from '../core/geom';
 import { decal, toon, RAMP_SMOOTH } from '../core/materials';
 import * as TX from '../core/textures';
 import { L } from './layout';
@@ -23,7 +23,7 @@ export interface SceneCtx {
   wet: WetEntry[];
 }
 
-export function buildBase(root: THREE.Object3D, ctx: SceneCtx): THREE.Group {
+export function buildBase(root: THREE.Object3D, ctx: SceneCtx) {
   const g = group(root, 0, 0, 0, 'base');
 
   /* ---------------- 台座 ---------------- */
@@ -46,22 +46,27 @@ export function buildBase(root: THREE.Object3D, ctx: SceneCtx): THREE.Group {
 
   /* ---------------- 沥青 ---------------- */
   const asphalt = toon(0xffffff, { map: TX.asphaltTex(), ramp: RAMP_SMOOTH });
-  addTiled(g, asphalt, H * 2, H - L.road.z, 4.5, 0, 0, (H + L.road.z) / 2);
-  addTiled(g, asphalt, H - L.road.x, L.road.z + H, 4.5,
-    (H + L.road.x) / 2, 0.0015, (L.road.z - H) / 2);
+  const road = new THREE.Mesh(roadGeometry(4.5), asphalt);
+  road.name = 'asphalt';
+  road.receiveShadow = true;
+  g.add(road);
 
   // 沥青湿了会变深，先压暗底色，再叠加实时倒影。
   const wetMask = new THREE.MeshBasicMaterial({
     color: 0x080b12,
-    map: TX.puddleMaskTex(),
+    alphaMap: TX.puddleMaskTex(),
     transparent: true,
     opacity: 0.34,
     depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
   });
-  const wetMaskA = addTiled(g, wetMask, H * 2, H - L.road.z, 8, 0, 0.004, (H + L.road.z) / 2);
-  const wetMaskB = addTiled(g, wetMask, H - L.road.x, L.road.z + H, 8, (H + L.road.x) / 2, 0.005, (L.road.z - H) / 2);
-  wetMaskA.renderOrder = wetMaskB.renderOrder = -2;
-  ctx.wet.push({ mesh: wetMaskA, base: 0.34 }, { mesh: wetMaskB, base: 0.34 });
+  const puddles = new THREE.Mesh(roadGeometry(7.3), wetMask);
+  puddles.renderOrder = -2;
+  noOutline(puddles);
+  g.add(puddles);
+  ctx.wet.push({ mesh: puddles, base: 0.34 });
 
   /* ---------------- 人行道（L 形挤出） ---------------- */
   const walkMat = toon(0xffffff, { map: TX.sidewalkTex(), ramp: RAMP_SMOOTH });
@@ -97,20 +102,25 @@ export function buildBase(root: THREE.Object3D, ctx: SceneCtx): THREE.Group {
 
   /* ---------------- 路缘石 ---------------- */
   const curb = toon(P.curb);
-  addBox(g, curb, L.walk.xOuter + H + 0.2, 0.07, 0.2, (L.walk.xOuter - H) / 2, L.curb - 0.04, L.walk.zOuter - 0.1);
-  addBox(g, curb, 0.2, 0.07, L.walk.zOuter + H + 0.2, L.walk.xOuter - 0.1, L.curb - 0.04, (L.walk.zOuter - H) / 2);
+  const curbPath = new THREE.Shape([
+    new THREE.Vector2(-H, -L.walk.zOuter),
+    new THREE.Vector2(L.walk.xOuter, -L.walk.zOuter),
+    new THREE.Vector2(L.walk.xOuter, H),
+    new THREE.Vector2(L.walk.xOuter - 0.2, H),
+    new THREE.Vector2(L.walk.xOuter - 0.2, -L.walk.zOuter + 0.2),
+    new THREE.Vector2(-H, -L.walk.zOuter + 0.2),
+  ]);
+  const curbMesh = new THREE.Mesh(new THREE.ExtrudeGeometry(curbPath, { depth: 0.03, bevelEnabled: false }), curb);
+  curbMesh.rotation.x = -Math.PI / 2;
+  curbMesh.position.y = L.curb;
+  curbMesh.castShadow = curbMesh.receiveShadow = true;
+  g.add(curbMesh);
   const curbJoint = toon(0x777d83);
   for (let x = -H + 0.6; x < L.walk.xOuter - 0.2; x += 0.75) {
-    addBox(g, curbJoint, 0.009, 0.002, 0.19, x, L.curb + 0.031, L.walk.zOuter - 0.1, { cast: false });
+    noOutline(addBox(g, curbJoint, 0.009, 0.002, 0.19, x, L.curb + 0.03, L.walk.zOuter - 0.1, { cast: false }));
   }
   for (let z = -H + 0.6; z < L.walk.zOuter - 0.2; z += 0.75) {
-    addBox(g, curbJoint, 0.19, 0.002, 0.009, L.walk.xOuter - 0.1, L.curb + 0.031, z, { cast: false });
-  }
-  {
-    const c = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.07, 14, 1, false, 0, Math.PI / 2), curb);
-    c.position.set(L.walk.xOuter - 0.1, L.curb, L.walk.zOuter - 0.1);
-    c.castShadow = true;
-    g.add(c);
+    noOutline(addBox(g, curbJoint, 0.19, 0.002, 0.009, L.walk.xOuter - 0.1, L.curb + 0.03, z, { cast: false }));
   }
 
   /* ---------------- 排水沟 ---------------- */
@@ -141,11 +151,13 @@ export function buildBase(root: THREE.Object3D, ctx: SceneCtx): THREE.Group {
     m.position.set(x, 0.01, z);
     m.scale.setScalar(s);
     g.add(m);
+    noOutline(m);
   };
   mkManhole(-2.6, 5.6, 1);
   mkManhole(6.4, -2.2, 0.8);
 
   /* ---------------- 路面标线 ---------------- */
+  const markings = group(g, 0, 0, 0, 'road-markings');
   const paint = new THREE.MeshBasicMaterial({ color: 0xc6cdd2, toneMapped: false, transparent: true, opacity: 0.5, depthWrite: false });
   const addPaint = (w: number, d: number, x: number, z: number, op = 0.5, ry = 0) => {
     const m = new THREE.Mesh(uvPlaneGeo(w, d, 1), paint.clone());
@@ -154,7 +166,8 @@ export function buildBase(root: THREE.Object3D, ctx: SceneCtx): THREE.Group {
     m.rotation.x = -Math.PI / 2;
     m.rotation.z = ry;
     m.position.set(x, 0.014, z);
-    g.add(m);
+    markings.add(m);
+    noOutline(m);
   };
   // 斑马线（横跨前马路）
   for (let i = 0; i < 8; i++) addPaint(0.48, 3.6, -4.6 + i * 0.9, (L.road.z + H) / 2, 0.46);
@@ -171,7 +184,7 @@ export function buildBase(root: THREE.Object3D, ctx: SceneCtx): THREE.Group {
   stop.rotation.x = -Math.PI / 2;
   stop.rotation.z = Math.PI;
   stop.position.set(-2.4, 0.015, 6.8);
-  g.add(stop);
+  markings.add(stop);
   noOutline(stop);
 
   // 自行车道标记
@@ -180,7 +193,7 @@ export function buildBase(root: THREE.Object3D, ctx: SceneCtx): THREE.Group {
   }));
   bike.rotation.x = -Math.PI / 2;
   bike.position.set(0.6, 0.015, 5.4);
-  g.add(bike);
+  markings.add(bike);
   noOutline(bike);
 
   /* ---------------- 停车位 ---------------- */
@@ -193,7 +206,7 @@ export function buildBase(root: THREE.Object3D, ctx: SceneCtx): THREE.Group {
   }));
   pMark.rotation.x = -Math.PI / 2;
   pMark.position.set(4.75, 0.015, 7.2);
-  g.add(pMark);
+  markings.add(pMark);
   noOutline(pMark);
 
   /* ---------------- 导盲砖 ----------------
@@ -211,10 +224,10 @@ export function buildBase(root: THREE.Object3D, ctx: SceneCtx): THREE.Group {
     strip.rotation.y = rotation;
     addBox(strip, tactile, length, 0.009, 0.3, 0, 0, 0, { cast: false });
     for (let i = -1.5; i <= 1.5; i++) {
-      addBox(strip, tactileRib, length - 0.016, 0.006, 0.023, 0, 0.009, i * 0.062, { r: 0.003, cast: false });
+      noOutline(addBox(strip, tactileRib, length - 0.016, 0.006, 0.023, 0, 0.009, i * 0.062, { r: 0.003, cast: false }));
     }
     for (let pos = -length / 2 + 0.3; pos < length / 2 - 0.03; pos += 0.3) {
-      addBox(strip, tactileJoint, 0.006, 0.001, 0.292, pos, 0.009, 0, { cast: false });
+      noOutline(addBox(strip, tactileJoint, 0.006, 0.001, 0.292, pos, 0.009, 0, { cast: false }));
     }
   };
   const TACTILE_INSET = 0.15;
@@ -253,7 +266,14 @@ export function buildBase(root: THREE.Object3D, ctx: SceneCtx): THREE.Group {
   });
 
   ctx.pieces.push(g);
-  return g;
+  return { root: g, markings };
+}
+
+function roadGeometry(tile: number): THREE.BufferGeometry {
+  return flatPolygon([
+    [-H, L.road.z], [L.road.x, L.road.z], [L.road.x, -H],
+    [H, -H], [H, H], [-H, H],
+  ], tile);
 }
 
 function namePlateTex(): THREE.Texture {
@@ -308,14 +328,15 @@ function makeRipples(): THREE.Mesh {
         return fract(p.x * p.y);
       }
 
-      float ring(vec2 center, vec2 f, float t, float seed) {
+      float ring(vec2 center, vec2 f, float t, float seed, float pixel) {
         float period = 0.8 + seed * 0.85;
         float phase = fract(t / period + seed * 7.13);
         float r = phase * 0.42;
         float d = length(f - center);
         // 环要细：宽一点就变成"地上的圆圈"而不是雨点
         float w = 0.006 + phase * 0.009;
-        float a = smoothstep(w, 0.0, abs(d - r));
+        float filterWidth = max(w, pixel);
+        float a = (1.0 - smoothstep(0.0, filterWidth, abs(d - r))) * (w / filterWidth);
         float fade = (1.0 - smoothstep(0.28, 1.0, phase)) * smoothstep(0.0, 0.05, phase);
         return a * fade;
       }
@@ -323,6 +344,7 @@ function makeRipples(): THREE.Mesh {
       void main() {
         float cell = 0.85;
         vec2 uv = vWorld / cell;
+        float pixel = max(length(dFdx(uv)), length(dFdy(uv)));
         vec2 gc = floor(uv);
         vec2 f = fract(uv);
         float acc = 0.0;
@@ -331,17 +353,16 @@ function makeRipples(): THREE.Mesh {
             vec2 gid = gc + vec2(float(x), float(y));
             float h = hash(gid);
             vec2 center = vec2(hash(gid + 3.7), hash(gid + 11.3)) * 0.64 + 0.18;
-            acc += ring(center, f - vec2(float(x), float(y)), uTime + h * 3.1, h);
+            acc += ring(center, f - vec2(float(x), float(y)), uTime + h * 3.1, h, pixel);
           }
         }
-        float edge = smoothstep(uArea * 0.5, uArea * 0.42, max(abs(vWorld.x), abs(vWorld.y)));
+        float edge = 1.0 - smoothstep(uArea * 0.42, uArea * 0.5, max(abs(vWorld.x), abs(vWorld.y)));
+        edge *= 1.0 - smoothstep(0.045, 0.13, pixel);
         float a = clamp(acc, 0.0, 1.0) * uOpacity * edge;
         if (a < 0.004) discard;
         gl_FragColor = vec4(uColor, a);
       }
     `,
   });
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(L.half * 2, L.half * 2, 1, 1), mat);
-  m.rotation.x = -Math.PI / 2;
-  return m;
+  return new THREE.Mesh(roadGeometry(1), mat);
 }

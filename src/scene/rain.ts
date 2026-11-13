@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 降雨系统。
  *
  * 一个 InstancedBufferGeometry 装全部雨丝，顶点着色器里做公告板 + 垂直循环，
@@ -21,6 +21,7 @@ const VERT = /* glsl */ `
   varying float vAlpha;
   varying float vWarm;
   varying vec2 vUv;
+  varying vec3 vRainPosition;
 
   void main() {
     vUv = uv;
@@ -36,10 +37,11 @@ const VERT = /* glsl */ `
 
     // 公告板：横向用摄像机右向量，纵向沿世界 Y（略带倾斜）
     vec3 pos = center + uRight * position.x * 1.0 + vec3(0.06 * uWind, -1.0, 0.0) * position.y * len;
+    vRainPosition = pos;
 
     // 距离衰减 + 顶部淡出，避免"雨从天而降突然出现"的硬边
     float dist = distance(center, uCamPos);
-    vAlpha = smoothstep(0.0, 1.0, y) * (1.0 - smoothstep(13.0, 26.0, dist)) * 0.62;
+    vAlpha = smoothstep(0.6, 2.3, dist) * (1.0 - smoothstep(13.0, 26.0, dist)) * 0.62;
     // 高度越接近地面越淡（雨丝在灯下更明显，落地前消失）
     vAlpha *= smoothstep(0.0, 0.7, y);
 
@@ -55,14 +57,26 @@ const FRAG = /* glsl */ `
   uniform vec3 uCold;
   uniform vec3 uWarm;
   uniform float uOpacity;
+  uniform vec4 uStoreBounds;
+  uniform vec4 uCanopyBounds;
+  uniform float uRoofHeight;
+  uniform float uCanopyHeight;
   varying float vAlpha;
   varying float vWarm;
   varying vec2 vUv;
+  varying vec3 vRainPosition;
+
+  bool underCover(vec4 bounds, float height) {
+    return vRainPosition.y < height
+      && all(greaterThan(vRainPosition.xz, bounds.xy))
+      && all(lessThan(vRainPosition.xz, bounds.zw));
+  }
 
   void main() {
+    if (underCover(uStoreBounds, uRoofHeight) || underCover(uCanopyBounds, uCanopyHeight)) discard;
     // 雨丝两端收细：横向硬边、纵向渐变，接近手绘动画里的雨
-    float edge = smoothstep(0.0, 0.12, vUv.x) * smoothstep(1.0, 0.88, vUv.x);
-    float taper = smoothstep(0.0, 0.35, vUv.y) * smoothstep(1.0, 0.55, vUv.y);
+    float edge = smoothstep(0.0, 0.12, vUv.x) * (1.0 - smoothstep(0.88, 1.0, vUv.x));
+    float taper = smoothstep(0.0, 0.35, vUv.y) * (1.0 - smoothstep(0.55, 1.0, vUv.y));
     float a = vAlpha * edge * taper * uOpacity;
     if (a < 0.004) discard;
     vec3 col = mix(uCold, uWarm, vWarm * 0.85);
@@ -71,6 +85,7 @@ const FRAG = /* glsl */ `
 `;
 
 export interface RainHandles {
+  mesh: THREE.Mesh;
   update(t: number, dt: number, cam: THREE.Camera): void;
   setDensity(v: number): void;
 }
@@ -117,6 +132,13 @@ export function buildRain(root: THREE.Object3D, opts: { count?: number; height?:
       uCold: { value: new THREE.Color(0x9ecbff).multiplyScalar(1.15) },
       uWarm: { value: new THREE.Color(0xffdca8).multiplyScalar(1.5) },
       uOpacity: { value: 0.95 },
+      uStoreBounds: { value: new THREE.Vector4(L.store.x0, L.store.z0, L.store.x1, L.store.z1) },
+      uCanopyBounds: { value: new THREE.Vector4(
+        CANOPY.x - CANOPY.w / 2, CANOPY.z - CANOPY.d / 2,
+        CANOPY.x + CANOPY.w / 2, CANOPY.z + CANOPY.d / 2,
+      ) },
+      uRoofHeight: { value: L.store.roofY },
+      uCanopyHeight: { value: CANOPY.top },
     },
     vertexShader: VERT,
     fragmentShader: FRAG,
@@ -136,6 +158,7 @@ export function buildRain(root: THREE.Object3D, opts: { count?: number; height?:
   const camRight = new THREE.Vector3();
 
   return {
+    mesh,
     update(t, dt, cam) {
       mat.uniforms.uTime.value = t;
       camRight.setFromMatrixColumn(cam.matrixWorld, 0).setY(0).normalize();
@@ -145,6 +168,7 @@ export function buildRain(root: THREE.Object3D, opts: { count?: number; height?:
     },
     setDensity(v) {
       mat.uniforms.uOpacity.value = v;
+      mesh.visible = v > 0.02;
     },
   };
 }
@@ -153,7 +177,7 @@ export function buildRain(root: THREE.Object3D, opts: { count?: number; height?:
  * 屋檐滴水 + 溅落
  * ============================================================ */
 
-export function buildDrips(root: THREE.Object3D, ctx: { ticks: ((t: number, dt: number) => void)[] }): void {
+export function buildDrips(root: THREE.Object3D, ctx: { ticks: ((t: number, dt: number) => void)[] }) {
   // 雨棚前缘 + 招牌下缘的滴水
   const spots: { x: number; z: number; y: number; period: number; phase: number }[] = [];
   const gutterZ = CANOPY.z + CANOPY.d / 2 + 0.018;
@@ -178,18 +202,22 @@ export function buildDrips(root: THREE.Object3D, ctx: { ticks: ((t: number, dt: 
   g.layers.set(1);
   root.add(g);
 
-  const dropGeo = new THREE.SphereGeometry(0.022, 6, 6);
-  const dropMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xcfe6ff).multiplyScalar(1.3), toneMapped: false, transparent: true, opacity: 0.85 });
+  const dropGeo = new THREE.SphereGeometry(0.012, 8, 6);
+  const dropMat = new THREE.MeshBasicMaterial({
+    color: new THREE.Color(0xcfe6ff).multiplyScalar(1.3),
+    toneMapped: false, transparent: true, opacity: 0.6, depthWrite: false,
+  });
   const drops = spots.map((spot) => {
     const m = new THREE.Mesh(dropGeo, dropMat);
     m.userData.dripOrigin = spot;
     m.visible = false;
+    m.layers.set(1);
     g.add(m);
     return m;
   });
 
   // 落点水花：一圈小环
-  const splashGeo = new THREE.RingGeometry(0.03, 0.055, 12);
+  const splashGeo = new THREE.RingGeometry(0.03, 0.041, 16);
   const splashMats = spots.map(() => new THREE.MeshBasicMaterial({
     color: 0xa8d4ff, transparent: true, opacity: 0, depthWrite: false, toneMapped: false,
     side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
@@ -197,25 +225,27 @@ export function buildDrips(root: THREE.Object3D, ctx: { ticks: ((t: number, dt: 
   const splashes = spots.map((s, i) => {
     const m = new THREE.Mesh(splashGeo, splashMats[i]);
     m.rotation.x = -Math.PI / 2;
-    m.position.set(s.x, 0.18, s.z);
+    m.position.set(s.x, L.curb + 0.009, s.z);
     m.renderOrder = 6;
+    m.layers.set(1);
     g.add(m);
     return m;
   });
 
+  let rain = 0;
   ctx.ticks.push((t) => {
+    if (!g.visible) return;
     for (let i = 0; i < spots.length; i++) {
       const s = spots[i];
       const cyc = (t / s.period + s.phase) % 1;
       const fall = cyc / 0.72;
       const d = drops[i];
       if (cyc < 0.72) {
-        const yy = s.y - fall * fall * (s.y - 0.18);
+        const yy = s.y - fall * fall * (s.y - splashes[i].position.y);
         d.visible = true;
         d.position.set(s.x, yy, s.z);
         const sc = 0.7 + fall * 0.9;
         d.scale.set(sc, sc * (1 + fall * 2.2), sc);
-        (d.material as THREE.MeshBasicMaterial).opacity = 0.85;
       } else {
         d.visible = false;
       }
@@ -225,94 +255,20 @@ export function buildDrips(root: THREE.Object3D, ctx: { ticks: ((t: number, dt: 
         sp.visible = true;
         const k = 1 + st * 2.2;
         sp.scale.set(k, k, k);
-        (sp.material as THREE.MeshBasicMaterial).opacity = (1 - st) * 0.42;
+        splashMats[i].opacity = (1 - st) * 0.34 * rain;
       } else {
         sp.visible = false;
       }
     }
   });
-}
-
-/* ============================================================
- * 玻璃上的雨痕（沿玻璃滑落）
- * ============================================================ */
-
-export function buildGlassRain(
-  root: THREE.Object3D,
-  front: { x: number; z: number; w: number; h: number },
-  side: { x: number; z: number; w: number; h: number },
-  ctx: { ticks: ((t: number, dt: number) => void)[] },
-): void {
-  const mat = new THREE.ShaderMaterial({
-    transparent: true,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-    uniforms: { uTime: { value: 0 } },
-    vertexShader: /* glsl */ `
-      varying vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
-    fragmentShader: /* glsl */ `
-      varying vec2 vUv;
-      uniform float uTime;
-
-      float hash(vec2 p) {
-        p = fract(p * vec2(233.34, 851.73));
-        p += dot(p, p + 23.45);
-        return fract(p.x * p.y);
-      }
-
-      void main() {
-        vec2 uv = vUv;
-        float acc = 0.0;
-        // 3 层不同速度的雨痕，叠出"下滑的水珠拖尾"
-        for (int i = 0; i < 3; i++) {
-          float fi = float(i);
-          float cols = 26.0 + fi * 15.0;
-          float x = floor(uv.x * cols);
-          float h = hash(vec2(x, fi * 13.0));
-          float speed = 0.06 + h * 0.13;
-          float y = fract(uv.y + uTime * speed + h);
-          // 拖尾
-          float trail = smoothstep(0.0, 0.06, y) * smoothstep(0.42, 0.0, y);
-          // 横向位置抖动
-          float cx = mod(x / cols + 0.5 / cols, 1.0);
-          float dx = abs(uv.x - cx) * cols;
-          float line = smoothstep(0.5, 0.0, dx) * trail;
-          acc += line * (0.5 + h * 0.5);
-        }
-        // 静态的细密水膜
-        float film = hash(floor(uv * vec2(120.0, 180.0))) * 0.05;
-        float a = clamp(acc * 0.42 + film, 0.0, 1.0);
-        gl_FragColor = vec4(vec3(0.72, 0.86, 1.0), a * 0.5);
-      }
-    `,
-  });
-
-  // 前立面玻璃
-  const fg = new THREE.Mesh(new THREE.PlaneGeometry(front.w, front.h), mat);
-  fg.name = 'glass-rain-front';
-  fg.position.set(front.x, front.h / 2 + 0.5, front.z);
-  fg.renderOrder = 7;
-  fg.layers.set(1);
-  root.add(fg);
-
-  const mb = mat.clone();
-  mb.uniforms.uTime = mat.uniforms.uTime;
-  const sg = new THREE.Mesh(new THREE.PlaneGeometry(side.w, side.h), mb);
-  sg.name = 'glass-rain-side';
-  sg.position.set(side.x, side.h / 2 + 0.5, side.z);
-  sg.rotation.y = Math.PI / 2;
-  sg.renderOrder = 7;
-  sg.layers.set(1);
-  root.add(sg);
-
-  ctx.ticks.push((t) => {
-    mat.uniforms.uTime.value = t;
-  });
+  return {
+    root: g,
+    setDensity(value: number) {
+      rain = value;
+      g.visible = value > 0.02;
+      dropMat.opacity = value * 0.6;
+    },
+  };
 }
 
 /* ============================================================

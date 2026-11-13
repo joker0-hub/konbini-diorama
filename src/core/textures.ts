@@ -1517,7 +1517,7 @@ export function puddleMaskTex(): THREE.Texture {
       ctx.ellipse(x, y, rad, rad * (0.5 + r() * 0.5), r() * Math.PI, 0, Math.PI * 2);
       ctx.fill();
     }
-    return finish(c, { srgb: false });
+    return finish(c, { srgb: false, repeat: [1, 1] });
   });
 }
 

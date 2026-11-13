@@ -42,9 +42,7 @@ export interface StoreParts {
   signage: ReturnType<typeof buildStoreSignage>;
   entranceLight: THREE.SpotLight;
   frontSpill: THREE.SpotLight;
-  /** 店面前脸的玻璃面板（用于雨痕对齐） */
-  frontGlass: { x: number; z: number; w: number; h: number };
-  sideGlass: { x: number; z: number; w: number; h: number };
+  glazing: THREE.Mesh<THREE.PlaneGeometry>[];
 }
 
 export function buildStore(root: THREE.Object3D, ctx: SceneCtx): StoreParts {
@@ -76,8 +74,10 @@ export function buildStore(root: THREE.Object3D, ctx: SceneCtx): StoreParts {
   addBox(g, interiorWall, 0.02, h, S.z1 - S.z0 - 0.04, S.x0 + S.wallT + 0.012, S.floorY, (S.z0 + S.z1) / 2, { cast: false });
 
   /* ============ 玻璃幕墙 ============ */
-  buildFacade(g, { axis: 'z', plane: S.z1, a0: S.x0, a1: S.x1, door: DOOR });
-  buildFacade(g, { axis: 'x', plane: S.x1, a0: S.z0, a1: S.z1 });
+  const glazing = [
+    ...buildFacade(g, { axis: 'z', plane: S.z1, a0: S.x0, a1: S.x1, door: DOOR }),
+    ...buildFacade(g, { axis: 'x', plane: S.x1, a0: S.z0, a1: S.z1 }),
+  ];
 
   // 右墙在玻璃之上的一段实墙 + 立柱：让侧街看进来时有个"框"，
   // 否则整个侧面会通透到能看见对面墙的外侧，空间就没有围合感了。
@@ -153,11 +153,13 @@ export function buildStore(root: THREE.Object3D, ctx: SceneCtx): StoreParts {
     addBox(leaf, trim, doorHalf - 0.02, 0.09, 0.09, 0, S.glassTop - 0.1, 0);
     addBox(leaf, trim, 0.055, glassH - 0.13, 0.09, -(doorHalf - 0.02) / 2, S.floorY + 0.06, 0);
     addBox(leaf, trim, 0.055, glassH - 0.13, 0.09, (doorHalf - 0.02) / 2, S.floorY + 0.06, 0);
-    const pane = new THREE.Mesh(planeGeo(doorHalf - 0.1, glassH - 0.2), glass());
+    const pane = new THREE.Mesh(new THREE.PlaneGeometry(doorHalf - 0.1, glassH - 0.2), glass());
+    pane.name = 'store-glass-door';
     pane.position.set(0, (S.floorY + S.glassTop) / 2, 0);
     pane.renderOrder = 5;
     leaf.add(pane);
     noOutline(pane);
+    glazing.push(pane);
     // 贴纸带：让门的开合看得出来
     const sticker = new THREE.Mesh(planeGeo(doorHalf - 0.1, 0.34), decal(TX.doorStickerTex(), 0.92));
     sticker.position.set(0, S.floorY + 1.28, 0.008);
@@ -238,9 +240,7 @@ export function buildStore(root: THREE.Object3D, ctx: SceneCtx): StoreParts {
     root: g,
     doorL,
     doorR,
-    signage, entranceLight, frontSpill,
-    frontGlass: { x: (S.x0 + S.x1) / 2, z: S.z1 + 0.035, w: S.x1 - S.x0 - 0.3, h: S.glassTop - S.floorY - 0.4 },
-    sideGlass: { x: S.x1 + 0.035, z: (S.z0 + S.z1) / 2, w: S.z1 - S.z0 - 0.3, h: S.glassTop - S.floorY - 0.4 },
+    signage, entranceLight, frontSpill, glazing,
   };
 }
 
@@ -259,7 +259,7 @@ interface FacadeSpec {
  * 玻璃用极低不透明度 Basic 材质 —— 三渲二不需要折射，
  * 要的是"一眼看透店内"。
  */
-function buildFacade(parent: THREE.Object3D, spec: FacadeSpec): THREE.Group {
+function buildFacade(parent: THREE.Object3D, spec: FacadeSpec): THREE.Mesh<THREE.PlaneGeometry>[] {
   const f = group(parent, 0, 0, 0, 'facade');
   const trim = toon(P.storeTrim);
   const kickMat = toon(0x212833);
@@ -309,6 +309,7 @@ function buildFacade(parent: THREE.Object3D, spec: FacadeSpec): THREE.Group {
   ).sort((a, b) => a - b);
 
   const glassMat = glass();
+  const panes: THREE.Mesh<THREE.PlaneGeometry>[] = [];
   for (let i = 0; i < uniq.length - 1; i++) {
     const a = uniq[i];
     const b = uniq[i + 1];
@@ -316,7 +317,8 @@ function buildFacade(parent: THREE.Object3D, spec: FacadeSpec): THREE.Group {
     const w = b - a - 0.09;
     if (w <= 0.05) continue;
     const gh = L.store.glassTop - (L.store.floorY + kickH);
-    const m = new THREE.Mesh(planeGeo(w, gh), glassMat);
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, gh), glassMat);
+    m.name = isZ ? 'store-glass-front' : 'store-glass-side';
     if (isZ) m.position.set((a + b) / 2, L.store.floorY + kickH + gh / 2, spec.plane + out);
     else {
       m.position.set(spec.plane + out, L.store.floorY + kickH + gh / 2, (a + b) / 2);
@@ -325,6 +327,7 @@ function buildFacade(parent: THREE.Object3D, spec: FacadeSpec): THREE.Group {
     m.renderOrder = 5;
     f.add(m);
     noOutline(m);
+    panes.push(m);
   }
 
   for (const a of uniq) boxAt(0.085, L.store.glassTop - L.store.floorY, 0.14, a, L.store.floorY);
@@ -354,5 +357,5 @@ function buildFacade(parent: THREE.Object3D, spec: FacadeSpec): THREE.Group {
     boxAt(dw + 0.14, 0.14, 0.2, (spec.door.x0 + spec.door.x1) / 2, L.store.glassTop - 0.14);
   }
 
-  return f;
+  return panes;
 }
