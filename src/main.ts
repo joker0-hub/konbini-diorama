@@ -1,6 +1,5 @@
 /** 入口：可拖拽查看的微缩模型，樱花树可点击打开四项环境参数。 */
 
-import './style.css';
 import * as THREE from 'three';
 import { buildWorld } from './scene/world';
 import { createCameraRig } from './render/camera';
@@ -9,14 +8,13 @@ import { createSakuraPanel } from './ui/sakura-panel';
 import { createVendingPanel } from './ui/vending-panel';
 import { createBottleDrag } from './ui/bottle-drag';
 import { createEnvUI } from './ui/envbar';
-import { createCodeOpening } from './ui/intro';
+import { envInit, opening, reducedMotion } from './ui/intro';
 import { createSoundscape } from './audio/soundscape';
 import { createSoundPanel } from './ui/sound-panel';
 import { P } from './core/palette';
 import { applyTextureQuality } from './core/textures';
 import { applyVendingTextureQuality } from './core/vending-detail';
 import { L } from './scene/layout';
-import type { TimeOfDay, Weather } from './scene/environment';
 
 const canvas = document.getElementById('stage') as HTMLCanvasElement;
 
@@ -54,37 +52,6 @@ const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0x0b1120, 0.018);
 void P;
 
-/**
- * 初始环境由 URL 参数决定：
- *   ?time=day|dusk|night   ?weather=clear|rain|snow
- * 缺省为「白天 + 晴」，开场字幕和揭幕后场景使用同一初始环境。
- * 加 &instant=1 可让积雪/过渡立刻到位（截图与自动化测试用）。
- */
-function readEnvFromUrl(): { time: TimeOfDay; weather: Weather; instant: boolean; intro: boolean; forceIntro: boolean } {
-  const q = new URLSearchParams(location.search);
-  const t = q.get('time');
-  const w = q.get('weather');
-  const time: TimeOfDay = t === 'day' || t === 'dusk' || t === 'night' ? t : 'day';
-  const weather: Weather = w === 'clear' || w === 'rain' || w === 'snow' ? w : 'clear';
-  const options = {
-    time,
-    weather,
-    instant: q.get('instant') === '1',
-    // ?intro=0 只跳过开场字幕，不影响模型的入场组装
-    intro: q.get('intro') !== '0',
-    forceIntro: q.get('intro') === '1',
-  };
-  // 启动开关只消费一次：调试链接不能让刷新、热更新或再次分享一直跳过开场。
-  // 保留环境、其它查询参数和 hash，不新增浏览器历史记录。
-  if (q.has('intro') || q.has('instant')) {
-    const url = new URL(location.href);
-    url.searchParams.delete('intro');
-    url.searchParams.delete('instant');
-    history.replaceState(history.state, '', url);
-  }
-  return options;
-}
-const envInit = readEnvFromUrl();
 const sound = createSoundscape(envInit);
 
 const world = buildWorld({ time: envInit.time, weather: envInit.weather });
@@ -190,19 +157,8 @@ const unsubscribeEnvUI = world.environment.onChange((s) => { envUI.setState(s); 
 // 页面销毁时解绑（单页应用里无实际意义，但避免热更新时重复订阅）
 window.addEventListener('beforeunload', () => unsubscribeEnvUI());
 
-/* ---------------- 代码开场动画 ---------------- */
-// 一段"正在编译这个场景"的脚本先敲出来，敲完后两扇门滑开，
-// 揭幕后才启动模型组装，避免用户阅读代码时动画在遮罩后提前播完。
-// ?intro=0 或 ?instant=1 时直接跳过（截图与自动化测试用）。
-const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-const opening = createCodeOpening({
-  disabled:
-    !envInit.intro ||
-    (envInit.instant && !envInit.forceIntro) ||
-    (reducedMotion && !envInit.forceIntro),
-  time: envInit.time,
-  weather: envInit.weather,
-});
+/* ---------------- 入场组装 ---------------- */
+// 模型组装在滑门打开后播放。
 if ((envInit.instant && !envInit.forceIntro) || reducedMotion) {
   world.assembly.finishNow();
   world.doMerge();
@@ -287,7 +243,7 @@ const interactions = [
 ];
 function canInteract(): boolean {
   return world.assembly.finished && !rig.isFocusing() && !vendingPanel.isOpen() &&
-    !sakuraPanel.isOpen() && !soundPanel.isOpen() && !document.querySelector('.intro');
+    !sakuraPanel.isOpen() && !soundPanel.isOpen() && !opening.isRunning;
 }
 const sakuraRaycaster = new THREE.Raycaster();
 const sakuraPointer = new THREE.Vector2();
@@ -407,7 +363,15 @@ function frame(): void {
 }
 
 renderer.compile(scene, camera);
-requestAnimationFrame(frame);
+requestAnimationFrame(() => {
+  try {
+    frame();
+    opening.ready();
+  } catch (error) {
+    opening.fail();
+    throw error;
+  }
+});
 
 /* ---------------- 调试接口 ---------------- */
 declare global {
@@ -421,7 +385,7 @@ declare global {
       renderer: THREE.WebGLRenderer;
       pipeline: typeof pipeline;
       skipIntro: () => void;
-      /** 只跳过代码开场字幕，保留模型的入场组装动画 */
+      /** 跳过加载界面，保留模型的入场组装动画。 */
       skipOpening: () => void;
       view: (pos: [number, number, number], target: [number, number, number]) => void;
       replay: () => void;

@@ -119,7 +119,7 @@ console.log('shot 09-edges');
 await page.evaluate(() => window.__konbini.pipeline.debugEdges(false));
 
 // 9. 入场动画中间帧
-// 用 ?intro=0 关掉代码开场字幕，只保留模型的组装动画。
+// 用 ?intro=0 跳过加载界面，保留模型的组装动画。
 const assemblyUrl = base + (base.includes('?') ? '&' : '?') + 'intro=0';
 await page.goto(assemblyUrl, { waitUntil: 'domcontentloaded', timeout: 90000 });
 await page.waitForFunction(() => Boolean(window.__konbini), { timeout: 90000 });

@@ -73,15 +73,28 @@ try {
     await page.goto(new URL(query, base).href, { waitUntil: 'domcontentloaded', timeout: 90000 });
     await ready();
   };
-  await visit();
-  check('普通入口显示 IDE 开场', !!await page.$('.intro:not(.is-open)'));
-  await sleep(7600);
-  check('阅读超过组装时长，模型仍等待揭幕', await page.evaluate(() =>
-    window.__konbini.world.assembly.progress === 0 && !window.__konbini.world.assembly.finished));
-  await page.click('[data-act="next"]');
-  check('继续显示第二段代码', !!await page.$('.intro.is-step2'));
-  await page.click('[data-act="next"]');
-  check('进入站点显示标题卡', !!await page.$('.intro.is-splash'));
+  await page.setRequestInterception(true);
+  const isSceneBundle = (request) => /\/(?:src\/main\.ts|assets\/main-[\w-]+\.js)$/.test(new URL(request.url()).pathname);
+  const sceneRequest = page.waitForRequest(isSceneBundle);
+  const holdScene = (request) => { if (!isSceneBundle(request)) void request.continue(); };
+  page.on('request', holdScene);
+  await page.goto(base, { waitUntil: 'domcontentloaded', timeout: 90000 });
+  const pendingScene = await sceneRequest;
+  await page.waitForSelector('.intro__status', { visible: true });
+  await page.keyboard.press('Enter');
+  check('3D 文件加载前先显示标题和加载状态，ENTER 隐藏', await page.evaluate(() =>
+    Boolean(document.querySelector('.intro__title-jp') && document.querySelector('.intro__status:not([hidden])') &&
+      document.querySelector('.intro__enter[hidden]')) && !window.__konbini));
+  await pendingScene.continue();
+  await page.setRequestInterception(false);
+  page.off('request', holdScene);
+  await ready();
+  await page.waitForSelector('.intro__enter', { visible: true });
+  check('首帧就绪后显示 ENTER', await page.$eval('.intro__enter', (button) => button.textContent === 'ENTER'));
+  await sleep(3000);
+  check('等待 ENTER 时，滑门与模型组装保持待机', await page.evaluate(() =>
+    !!document.querySelector('.intro:not(.is-open)') && window.__konbini.world.assembly.progress === 0));
+  await page.keyboard.press('Enter');
   await page.waitForSelector('.intro', { hidden: true, timeout: 15000 });
   await page.waitForFunction(() => window.__openingProbe.sawAssembly);
   check('揭幕后开始播放组装', true);
@@ -109,7 +122,7 @@ try {
 
   await visit('?intro=0');
   await page.waitForFunction(() => window.__openingProbe.sawAssembly);
-  check('仅跳过代码开场仍保留组装', await page.evaluate(() =>
+  check('跳过加载界面时仍播放模型组装', await page.evaluate(() =>
     !window.__openingProbe.initial.intro && !window.__openingProbe.initial.finished));
   await page.evaluate(() => window.__konbini.env.set({ time: 'dusk', weather: 'clear' }, true));
   await Promise.all([page.waitForNavigation({ waitUntil: 'domcontentloaded' }), page.click('.opening-replay')]);
@@ -117,6 +130,7 @@ try {
   check('重播入口恢复开场并保留当前环境', await page.evaluate(() =>
     !!document.querySelector('.intro') && window.__konbini.env.get().time === 'dusk' &&
     window.__konbini.env.get().weather === 'clear' && window.__konbini.world.assembly.progress === 0));
+  await page.waitForSelector('.intro__enter', { visible: true });
   await page.keyboard.press('Escape');
   await page.waitForSelector('.intro', { hidden: true });
   await page.waitForFunction(() => window.__konbini.world.assembly.progress > 0);
@@ -130,19 +144,15 @@ try {
   await ready();
   check('减少动效下可主动查看静态开场', await page.evaluate(() =>
     !!document.querySelector('.intro') && window.__konbini.world.assembly.finished &&
-    getComputedStyle(document.querySelector('.ide__row')).animationName === 'none'));
+    getComputedStyle(document.querySelector('.intro__title')).animationName === 'none'));
   await page.setViewport({ width: 320, height: 568, isMobile: true, hasTouch: true });
   await visit('?intro=1');
-  check('小屏开场的输入框与操作按钮完整可见', await page.$eval('.intro__ide', (editor) => {
-    const bounds = editor.getBoundingClientRect();
-    return [...editor.querySelectorAll('.ide__chip, .ide__cmd, .ide__go')].every((control) => {
-      const rect = control.getBoundingClientRect();
-      return rect.left >= bounds.left && rect.right <= bounds.right &&
-        rect.top >= bounds.top && rect.bottom <= bounds.bottom;
-    });
+  const enter = await page.waitForSelector('.intro__enter', { visible: true });
+  check('小屏 ENTER 按钮完整可见', await enter.evaluate((button) => {
+    const rect = button.getBoundingClientRect();
+    return rect.left >= 0 && rect.right <= innerWidth && rect.top >= 0 && rect.bottom <= innerHeight;
   }));
-  await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
-  await page.keyboard.press('Escape');
+  await enter.tap();
   await page.waitForSelector('.intro', { hidden: true });
   await page.waitForSelector('.opening-replay:not([hidden])');
   check('手机重播按钮位于可见区域', await page.$eval('.opening-replay', (el) => {

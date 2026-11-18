@@ -69,11 +69,9 @@ try {
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
   await page.goto(base + '?time=day&weather=clear', { waitUntil: 'domcontentloaded', timeout: 90000 });
   await page.waitForFunction(() => Boolean(window.__konbini), { timeout: 90000 });
-  check('Default load retains the STEP 1 opening', await page.$eval('.ide__step', (e) => e.textContent.includes('STEP 1 / 2')));
-  await page.click('.ide__go');
-  check('Opening advances to STEP 2', await page.$eval('.intro', (e) => e.classList.contains('is-step2')));
-  await page.click('.ide__go');
-  check('Opening retains the title card', await page.$eval('.intro', (e) => e.classList.contains('is-splash')));
+  await page.waitForSelector('.intro__enter', { visible: true });
+  check('Default load offers ENTER after the scene is ready', await page.$eval('.intro__enter', (e) => e.textContent === 'ENTER'));
+  await page.click('.intro__enter');
   await page.waitForSelector('.intro', { hidden: true, timeout: 15000 });
   await page.waitForFunction(() => window.__konbini.world.assembly.finished, { timeout: 15000 });
   check('Opening doors finish and the assembled scene remains interactive', true);
