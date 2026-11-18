@@ -92,12 +92,12 @@ try {
   await page.waitForSelector('.intro__enter', { visible: true });
   check('首帧就绪后显示 ENTER', await page.$eval('.intro__enter', (button) => button.textContent === 'ENTER'));
   await sleep(3000);
-  check('等待 ENTER 时，滑门与模型组装保持待机', await page.evaluate(() =>
+  check('等待 ENTER 时，开场与模型组装保持待机', await page.evaluate(() =>
     !!document.querySelector('.intro:not(.is-open)') && window.__konbini.world.assembly.progress === 0));
   await page.keyboard.press('Enter');
   await page.waitForSelector('.intro', { hidden: true, timeout: 15000 });
   await page.waitForFunction(() => window.__openingProbe.sawAssembly);
-  check('揭幕后开始播放组装', true);
+  check('进入场景后播放模型组装', true);
   await page.waitForFunction(() => window.__konbini.world.assembly.finished, { timeout: 90000 });
   check('组装完成，重播入口可见', await page.$eval('.opening-replay', (el) => !el.hidden));
   check('入场完成默认白天晴天，无降雨或积雪', await page.evaluate(() => {

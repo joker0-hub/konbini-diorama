@@ -158,13 +158,13 @@ const unsubscribeEnvUI = world.environment.onChange((s) => { envUI.setState(s); 
 window.addEventListener('beforeunload', () => unsubscribeEnvUI());
 
 /* ---------------- 入场组装 ---------------- */
-// 模型组装在滑门打开后播放。
+// 模型组装在开场淡出时开始播放。
 if ((envInit.instant && !envInit.forceIntro) || reducedMotion) {
   world.assembly.finishNow();
   world.doMerge();
 } else {
   world.assembly.update(0);
-  world.assembly.paused = opening.isRunning;
+  world.assembly.paused = opening.holdsAssembly;
 }
 
 function replayOpening(): void {
@@ -341,7 +341,7 @@ function frame(): void {
   const realDelta = clock.getDelta();
   const dt = Math.min(realDelta, 0.05);
   elapsed += dt;
-  world.assembly.paused = opening.isRunning;
+  world.assembly.paused = opening.holdsAssembly;
   replayButton.hidden = opening.isRunning;
   sceneActions.hidden = opening.isRunning;
   soundPanel.setVisible(!opening.isRunning);

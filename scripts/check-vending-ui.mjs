@@ -74,7 +74,7 @@ try {
   await page.click('.intro__enter');
   await page.waitForSelector('.intro', { hidden: true, timeout: 15000 });
   await page.waitForFunction(() => window.__konbini.world.assembly.finished, { timeout: 15000 });
-  check('Opening doors finish and the assembled scene remains interactive', true);
+  check('The opening fades out and the assembled scene remains interactive', true);
   await page.evaluate(() => window.__konbini.view([11, 4, 0.6], [2.8, 0.75, -2.5]));
   await sleep(500);
   await purchase('water');

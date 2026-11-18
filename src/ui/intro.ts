@@ -28,11 +28,12 @@ interface Opening {
   ready(): void;
   fail(): void;
   skip(): void;
+  readonly holdsAssembly: boolean;
   readonly isRunning: boolean;
 }
 
 function createOpening(disabled: boolean): Opening {
-  if (disabled) return { ready() {}, fail() {}, skip() {}, isRunning: false };
+  if (disabled) return { ready() {}, fail() {}, skip() {}, holdsAssembly: false, isRunning: false };
 
   const root = document.createElement('div');
   root.className = 'intro';
@@ -40,10 +41,6 @@ function createOpening(disabled: boolean): Opening {
   root.setAttribute('aria-modal', 'true');
   root.setAttribute('aria-labelledby', 'opening-title');
   root.innerHTML = `
-    <div class="intro__leaves" aria-hidden="true">
-      <div class="intro__leaf intro__leaf--l"></div>
-      <div class="intro__leaf intro__leaf--r"></div>
-    </div>
     <div class="intro__petals" aria-hidden="true"></div>
     <div class="intro__splash">
       <div class="intro__title">
@@ -87,9 +84,16 @@ function createOpening(disabled: boolean): Opening {
     phase = 'opening';
     button.disabled = true;
     root.classList.add('is-open');
-    if (skip) root.classList.add('is-skip');
-    if (reducedMotion) finish();
-    else window.setTimeout(finish, skip ? 340 : 1050);
+    if (reducedMotion) {
+      finish();
+      return;
+    }
+    const fade = root.animate([{ opacity: 1 }, { opacity: 0 }], {
+      duration: skip ? 260 : 900,
+      easing: 'cubic-bezier(0.42, 0, 0.32, 1)',
+      fill: 'forwards',
+    });
+    void fade.finished.then(finish, finish);
   }
 
   function onKey(event: KeyboardEvent): void {
@@ -128,6 +132,7 @@ function createOpening(disabled: boolean): Opening {
       status.textContent = '场景加载失败，请刷新重试。';
     },
     skip: () => open(true),
+    get holdsAssembly() { return phase !== 'opening' && phase !== 'done'; },
     get isRunning() { return phase !== 'done'; },
   };
 }

@@ -500,59 +500,13 @@ html[data-time="day"] {
   inset: 0;
   z-index: 60;
   overflow: clip;
+  background: var(--intro-backdrop) center center / cover no-repeat,
+    linear-gradient(145deg, #c8d9dd, #f6ddd4);
   font-family: "Inter", "Segoe UI", "Hiragino Sans", "Noto Sans JP", "Microsoft YaHei",
     system-ui, sans-serif;
   color: #cfd8e3;
   user-select: none;
   -webkit-user-select: none;
-}
-
-.intro__leaves {
-  position: absolute;
-  inset: 0;
-  display: flex;
-}
-
-.intro__leaf {
-  position: relative;
-  width: 50%;
-  overflow: hidden;
-  transition: transform 1.05s cubic-bezier(0.68, 0, 0.24, 1);
-}
-
-/* 两扇门各裁取同一张全屏背景的一半，滑开时店面随门移动。 */
-.intro__leaf::before {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 100vw;
-  background: var(--intro-backdrop) center center / cover no-repeat,
-    linear-gradient(145deg, #c8d9dd, #f6ddd4);
-}
-
-.intro__leaf--r::before {
-  left: auto;
-  right: 0;
-}
-
-.intro__leaf::after {
-  content: "";
-  position: absolute;
-  inset: 0 0 0 auto;
-  width: min(6vw, 80px);
-  background: linear-gradient(90deg, transparent, #fff4de80);
-  border-right: 1px solid #fff7e6c0;
-  opacity: 0;
-  transition: opacity 0.38s ease;
-}
-
-.intro__leaf--r::after {
-  inset: 0 auto 0 0;
-  transform: scaleX(-1);
-}
-
-.intro.is-open:not(.is-skip) .intro__leaf::after {
-  opacity: 1;
 }
 
 .intro__petals {
@@ -589,26 +543,8 @@ html[data-time="day"] {
   }
 }
 
-.intro.is-open {
-  pointer-events: none;
-}
-
-.intro.is-open .intro__leaf--l {
-  transform: translateX(-100.5%);
-}
-
-.intro.is-open .intro__leaf--r {
-  transform: translateX(100.5%);
-}
-
 .intro.is-open .intro__petals {
   opacity: 0;
-}
-
-/* 跳过时门滑得更快，但保留方向感 */
-.intro.is-skip .intro__leaf {
-  transition-duration: 0.34s;
-  transition-timing-function: cubic-bezier(0.55, 0, 0.8, 0.25);
 }
 
 .intro__splash {
@@ -619,11 +555,6 @@ html[data-time="day"] {
   align-items: center;
   padding-inline: var(--intro-gutter);
   background: linear-gradient(90deg, #fff5e8 0%, #fff5e8f4 20%, #fff5e8ca 30%, #fff5e800 62%);
-  transition: opacity 0.3s ease;
-}
-
-.intro.is-open .intro__splash {
-  opacity: 0;
 }
 
 .intro__sign {
@@ -640,6 +571,11 @@ html[data-time="day"] {
   justify-items: start;
   gap: clamp(8px, 1.9dvh, 18px);
   animation: intro-title-in 0.72s cubic-bezier(0.18, 0.74, 0.23, 1) backwards;
+}
+
+.intro.is-open .intro__title {
+  opacity: 0;
+  transition: opacity 0.28s ease-out;
 }
 
 @keyframes intro-title-in {
@@ -764,7 +700,7 @@ html[data-time="day"] {
 }
 
 @media (min-width: 761px) and (orientation: portrait) {
-  .intro__leaf::before {
+  .intro {
     background-position: 72% center;
   }
 }
