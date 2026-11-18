@@ -698,7 +698,7 @@ html[data-time="day"] {
   height: 100%;
   border-radius: inherit;
   background: #a34657;
-  animation: intro-loading 1.4s ease-in-out infinite alternate;
+  animation: intro-loading 2.4s ease-in-out infinite alternate;
 }
 
 @keyframes intro-loading {

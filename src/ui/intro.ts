@@ -22,6 +22,7 @@ function readLaunchOptions() {
 
 export const envInit = readLaunchOptions();
 export const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const MIN_LOADING_MS = 2400;
 
 interface Opening {
   ready(): void;
@@ -104,14 +105,22 @@ function createOpening(disabled: boolean): Opening {
   button.addEventListener('click', () => open(false));
   window.addEventListener('keydown', onKey, true);
   document.body.appendChild(root);
+  const loadingStartedAt = performance.now();
+
+  function showEnter(): void {
+    if (phase !== 'loading') return;
+    phase = 'ready';
+    status.hidden = true;
+    button.hidden = false;
+    button.focus({ preventScroll: true });
+  }
 
   return {
     ready() {
       if (phase !== 'loading') return;
-      phase = 'ready';
-      status.hidden = true;
-      button.hidden = false;
-      button.focus({ preventScroll: true });
+      const remaining = MIN_LOADING_MS - (performance.now() - loadingStartedAt);
+      if (reducedMotion || remaining <= 0) showEnter();
+      else window.setTimeout(showEnter, remaining);
     },
     fail() {
       if (phase !== 'loading') return;
