@@ -648,7 +648,9 @@ html[data-time="day"] {
   border-radius: 18px;
   border: 1px solid #a5bfcd80;
   overflow: hidden;
-  background: linear-gradient(164deg, #152b3d, #101e2e 60%, #152232);
+  background: linear-gradient(164deg, #152b3da3, #101e2eb8 60%, #152232ba);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
   box-shadow:
     0 22px 65px #0a223a69,
     0 4px 12px #0b1e3c52,
@@ -697,7 +699,7 @@ html[data-time="day"] {
   align-items: center;
   gap: 9px;
   padding: 0 14px;
-  background: #21384b;
+  background: #31506b45;
   border-bottom: 1px solid var(--ide-divider);
 }
 
@@ -794,7 +796,7 @@ html[data-time="day"] {
   display: flex;
   align-items: stretch;
   padding-left: 22px;
-  background: #192b3d;
+  background: #20394f38;
   border-bottom: 1px solid var(--ide-divider);
   min-width: 0;
 }
@@ -969,7 +971,7 @@ html[data-time="day"] {
   align-items: center;
   gap: 16px;
   padding: 0 14px;
-  background: #17293a;
+  background: #20394f38;
   border-top: 1px solid var(--ide-divider);
   font-size: 12px;
   color: #9fadbe;
@@ -1179,7 +1181,7 @@ html[data-time="day"] {
   align-items: center;
   gap: 10px;
   padding: 10px 14px 12px;
-  background: #142333;
+  background: #14233342;
 }
 
 .ide__prompt {
