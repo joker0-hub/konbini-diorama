@@ -18,7 +18,7 @@ export interface SakuraTreeHandles {
   root: THREE.Group;
   /** The visible trunk and canopy only, used by the click-to-open interaction. */
   pickRoot: THREE.Group;
-  update: (elapsed: number, dt: number) => void;
+  update: (elapsed: number, dt: number, camera: THREE.Camera) => void;
   setParameters: (patch: Partial<SakuraParameters>) => void;
   getParameters: () => SakuraParameters;
 }
@@ -31,7 +31,6 @@ interface BlossomInstance {
   ry: number;
   rz: number;
   scale: number;
-  phase: number;
   frontBlocking: boolean;
   thinThreshold: number;
 }
@@ -146,7 +145,7 @@ function createTubeFromPoints(
   return geometry;
 }
 
-function createSakuraFlowerGeometry(): THREE.BufferGeometry {
+function createSakuraFlowerGeometry(overview = false): THREE.BufferGeometry {
   const geometry = new THREE.BufferGeometry();
   const positions: number[] = [];
   const uvs: number[] = [];
@@ -163,7 +162,7 @@ function createSakuraFlowerGeometry(): THREE.BufferGeometry {
   // 花径只有 4cm、在 0.42 缩放下只有 1.7cm，玩家看到的是色块不是花瓣细节，
   // 而每朵省下的 2 个三角面在 3 万朵的量级上就是 6 万面 ——
   // 这笔预算换给"幅面覆盖"（花团连续、枝条不穿出）更值。
-  const triangles = [[0, 2, 3], [0, 3, 5]];
+  const triangles = overview ? [[0, 2, 4]] : [[0, 2, 3], [0, 3, 5]];
 
   for (let petal = 0; petal < numPetals; petal++) {
     const angle = (petal / numPetals) * Math.PI * 2;
@@ -197,33 +196,20 @@ function setBlossomMatrices(
   mesh: THREE.InstancedMesh,
   data: BlossomInstance[],
   parameters: SakuraParameters,
-  elapsed: number,
   dummy: THREE.Object3D,
 ): void {
   const thinThreshold = parameters.frontThinning * 0.78;
   for (let i = 0; i < data.length; i++) {
     const blossom = data[i];
     const hidden = blossom.frontBlocking && blossom.thinThreshold < thinThreshold;
-    if (hidden) {
-      dummy.scale.setScalar(0.0001);
-      dummy.position.set(blossom.x, blossom.y, blossom.z * parameters.depthFullness);
-      dummy.updateMatrix();
-      mesh.setMatrixAt(i, dummy.matrix);
-      continue;
-    }
-
-    const sway = Math.sin(elapsed * 2.1 + blossom.phase) * 0.018;
-    dummy.position.set(
-      blossom.x + sway,
-      blossom.y + sway * 0.4,
-      blossom.z * parameters.depthFullness + sway * 0.6,
-    );
-    dummy.rotation.set(blossom.rx + sway * 1.8, blossom.ry + sway * 1.2, blossom.rz);
-    dummy.scale.setScalar(blossom.scale * parameters.blossomScale);
+    dummy.position.set(blossom.x, blossom.y, blossom.z * parameters.depthFullness);
+    dummy.rotation.set(blossom.rx, blossom.ry, blossom.rz);
+    dummy.scale.setScalar(hidden ? 0.0001 : blossom.scale * parameters.blossomScale);
     dummy.updateMatrix();
     mesh.setMatrixAt(i, dummy.matrix);
   }
   mesh.instanceMatrix.needsUpdate = true;
+  mesh.boundingSphere = null;
 }
 
 export function buildSakuraTree(
@@ -420,7 +406,7 @@ export function buildSakuraTree(
   // 这一层正常着色，只是不参与「描边用的深度 pass」——
   // 几千片互相穿插的小花深度处处断层，直接拿去算描边会把整棵树描成黑团。
   blossoms.layers.set(DETAIL_LAYER);
-  blossoms.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  const overviewGeometry = createSakuraFlowerGeometry(true);
   // 挂在拔高组下：花簇必须跟着树干一起上移，否则拔高后花团会留在原地、
   // 树干从花团顶部戳出来。
   trunkStretch.add(blossoms);
@@ -552,7 +538,6 @@ export function buildSakuraTree(
         ry: rotationY,
         rz: rotationZ,
         scale: baseScale,
-        phase: x * 0.7 + y * 0.5 + cloudIndex * 0.3,
         frontBlocking,
         thinThreshold,
       });
@@ -625,31 +610,31 @@ export function buildSakuraTree(
     if (patch.depthFullness !== undefined) parameters.depthFullness = THREE.MathUtils.clamp(patch.depthFullness, 0.7, 1.5);
     if (patch.frontThinning !== undefined) parameters.frontThinning = THREE.MathUtils.clamp(patch.frontThinning, 0, 1);
     if (patch.petalIntensity !== undefined) parameters.petalIntensity = THREE.MathUtils.clamp(patch.petalIntensity, 0, 2.5);
-    setBlossomMatrices(blossoms, blossomData, parameters, 0, dummy);
+    const shapeChanged = patch.blossomScale !== undefined || patch.depthFullness !== undefined ||
+      patch.frontThinning !== undefined;
+    if (shapeChanged) setBlossomMatrices(blossoms, blossomData, parameters, dummy);
+    if (patch.depthFullness === undefined) return;
     skeleton.scale.set(1, 1, parameters.depthFullness);
     // depthFullness 改了以后，描边代理体必须跟着重排，
     // 否则描边和花团会错位（花团被拉长，代理体没动）。
     syncOutlineProxy(parameters);
   };
 
-  const update = (elapsed: number, dt: number): void => {
+  skeleton.scale.set(1, 1, parameters.depthFullness);
+  const treePosition = new THREE.Vector3();
+  const update = (elapsed: number, dt: number, camera: THREE.Camera): void => {
     pickRoot.rotation.z = Math.sin(elapsed * 1.3) * 0.004;
     pickRoot.rotation.x = Math.cos(elapsed) * 0.0025;
-    skeleton.scale.set(1, 1, parameters.depthFullness);
-    setBlossomMatrices(blossoms, blossomData, parameters, elapsed, dummy);
+    // Swap geometry only. Both distances use the same flower positions and colors.
+    const distanceSquared = root.getWorldPosition(treePosition).distanceToSquared(camera.position);
+    const nearLimit = blossoms.geometry === flowerGeometry ? 13 : 11;
+    blossoms.geometry = distanceSquared < nearLimit ** 2 ? flowerGeometry : overviewGeometry;
 
     const intensity = parameters.petalIntensity;
     const activeCount = Math.min(fallingCount, Math.round(fallingCount * intensity));
-    for (let i = 0; i < fallingCount; i++) {
+    fallingPetals.count = activeCount;
+    for (let i = 0; i < activeCount; i++) {
       const petal = fallingData[i];
-      if (i >= activeCount) {
-        dummy.position.set(petal.x, petal.y, petal.z);
-        dummy.scale.setScalar(0.0001);
-        dummy.updateMatrix();
-        fallingPetals.setMatrixAt(i, dummy.matrix);
-        continue;
-      }
-
       const speed = 0.55 + intensity * 0.75;
       petal.x += (petal.vx * 0.28 + Math.sin(elapsed * 1.8 + petal.phase) * 0.12) * dt * speed;
       petal.y += petal.vy * dt * speed;
@@ -681,7 +666,7 @@ export function buildSakuraTree(
       dummy.updateMatrix();
       fallingPetals.setMatrixAt(i, dummy.matrix);
     }
-    fallingPetals.instanceMatrix.needsUpdate = true;
+    if (activeCount > 0) fallingPetals.instanceMatrix.needsUpdate = true;
   };
 
   return {

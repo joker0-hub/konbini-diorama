@@ -49,14 +49,16 @@ const IN = {
   z1: S.z1 - 0.08,
 };
 
-export function buildInterior(root: THREE.Object3D, ctx: SceneCtx): void {
+export function buildInterior(root: THREE.Object3D, ctx: SceneCtx): THREE.Group {
   const FY = S.floorY;
   const X0 = IN.x0;
   const X1 = IN.x1;
   const Z0 = IN.z0;
   const Z1 = IN.z1;
 
-  const g = group(root, 0, 0, 0, 'interior');
+  const interior = group(root, 0, 0, 0, 'interior');
+  const g = group(interior, 0, 0, 0, 'interior-fixtures');
+  const ceiling = group(interior, 0, 0, 0, 'interior-lighting');
   const products = new ProductField();
 
   const white = toon(P.shelfWhite);
@@ -69,23 +71,23 @@ export function buildInterior(root: THREE.Object3D, ctx: SceneCtx): void {
   const panelW = X1 - X0 - 1.2;
   const panelCX = (X0 + X1) / 2 - 0.15;
   for (const z of [-5.9, -4.3, -2.7, -1.1]) {
-    addBox(g, toon(0xb9bec6), panelW + 0.14, 0.06, 0.42, panelCX, S.ceilY - 0.14, z, { cast: false, receive: false });
-    addBox(g, panelMat, panelW, 0.03, 0.28, panelCX, S.ceilY - 0.165, z, { cast: false, receive: false });
+    addBox(ceiling, toon(0xb9bec6), panelW + 0.14, 0.06, 0.42, panelCX, S.ceilY - 0.14, z, { cast: false, receive: false });
+    addBox(ceiling, panelMat, panelW, 0.03, 0.28, panelCX, S.ceilY - 0.165, z, { cast: false, receive: false });
     for (let i = 0; i < 4; i++) {
-      addBox(g, toon(0xb9bec6), 0.035, 0.04, 0.3,
+      addBox(ceiling, toon(0xb9bec6), 0.035, 0.04, 0.3,
         panelCX - panelW / 2 + (panelW * (i + 0.5)) / 4, S.ceilY - 0.17, z, { cast: false, receive: false });
     }
   }
-  addBox(g, glow(0xfff6e4, 0.16), X1 - X0 - 0.3, 0.02, Z1 - Z0 - 0.3,
+  addBox(ceiling, glow(0xfff6e4, 0.16), X1 - X0 - 0.3, 0.02, Z1 - Z0 - 0.3,
     (X0 + X1) / 2, S.ceilY - 0.035, (Z0 + Z1) / 2, { cast: false, receive: false });
 
   // 轨道射灯
   for (const z of [-4.9, -3.1, -1.3]) {
-    addBox(g, dark, X1 - X0 - 1.6, 0.03, 0.045, panelCX, S.ceilY - 0.16, z, { cast: false });
+    addBox(ceiling, dark, X1 - X0 - 1.6, 0.03, 0.045, panelCX, S.ceilY - 0.16, z, { cast: false });
     for (let i = 0; i < 3; i++) {
       const x = X0 + 1.0 + i * 1.9;
-      addCyl(g, dark, 0.045, 0.055, 0.14, x, S.ceilY - 0.3, z, { seg: 8 });
-      addMesh(g, new THREE.CylinderGeometry(0.04, 0.04, 0.014, 8), glow(0xfff1cc, 1.2), x, S.ceilY - 0.31, z).castShadow = false;
+      addCyl(ceiling, dark, 0.045, 0.055, 0.14, x, S.ceilY - 0.3, z, { seg: 8 });
+      addMesh(ceiling, new THREE.CylinderGeometry(0.04, 0.04, 0.014, 8), glow(0xfff1cc, 1.2), x, S.ceilY - 0.31, z).castShadow = false;
     }
   }
 
@@ -101,7 +103,7 @@ export function buildInterior(root: THREE.Object3D, ctx: SceneCtx): void {
     const light = new THREE.SpotLight(0xfff1e0, intensity, 5.6, 1.1, 0.72, 1.8);
     light.position.set(x, S.ceilY - 0.19, z);
     light.target.position.set(x, FY, z + 0.32);
-    g.add(light, light.target);
+    ceiling.add(light, light.target);
   }
   const coolFill = new THREE.PointLight(0xd9ecff, 1.25, 3.2, 2);
   coolFill.position.set(-4.0, 1.4, -5.6);
@@ -330,7 +332,9 @@ export function buildInterior(root: THREE.Object3D, ctx: SceneCtx): void {
   g.add(floorGlow);
   noOutline(floorGlow);
 
-  ctx.pieces.push(g);
+  ctx.assembly.add(g, 'interior', { fromY: -0.85, fromScaleY: 0.6 });
+  ctx.assembly.add(ceiling, 'roof');
+  return interior;
 }
 
 /* ------------------------------------------------------------------ */

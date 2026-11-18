@@ -13,7 +13,7 @@
 - 点击**樱花树**可以调整花簇的疏密和落樱的强度。
 - 轻点**门边的雨伞**可以拨动伞柄。雨天时，风会吹动雨伞，伞上的水会滴进接水盘。
 - 风雨、鸟鸣和虫鸣随环境变化，购买、碰撞和回收也有音效。右上角的**声音面板**可以分别调节环境音、交互音效和背景音乐，也能播放本地音频。
-- **开场动画**先演示代码，再从底座开始逐层组装街角。可跳过开场，也可以从右上角重播。
+- **开场动画**以晴天的店面和飘落的樱花为背景，代码演示后，双扇滑门揭开从底座逐层组装的街角。可跳过开场，也可以从右上角重播。
 - 点击右上角的**镜头归位**，可从旋转、缩放或商品近景平滑回到初始全景；手机竖屏会使用适合屏幕的视角。
 
 ## 自动售卖机
@@ -42,6 +42,8 @@ npm run dev
 ## 许可
 
 项目声明使用 MIT 许可；仓库目前尚未附独立的 `LICENSE` 文件。
+
+雨声循环混合了实际录制的持续降雨与近处屋檐滴水，取材自 seth-m 的 [rainfall](https://freesound.org/people/seth-m/sounds/323427/) 和 hoshisato 的 [rain and drips](https://freesound.org/people/hoshisato/sounds/853565/)。两段录音均采用 [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/)。
 
 <div align="center">
 <sub>Built with Three.js · TypeScript · Vite · cannon-es — 所有风景都是代码。</sub>

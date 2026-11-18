@@ -11,6 +11,7 @@
  */
 
 import * as THREE from 'three';
+import { DETAIL_LAYER } from './geom';
 import { toon, RAMP_INDOOR } from './materials';
 import * as TX from './textures';
 import { productGeometry, productDetails } from './shelf-product-geometry';
@@ -217,6 +218,9 @@ export class ProductField {
         lowDetail.instanceMatrix = detail.instanceMatrix;
         lowDetail.castShadow = detail.castShadow;
         lowDetail.receiveShadow = true;
+        // Tiny trim reads through its material color at street scale.
+        // Keep it out of the outline pass to avoid dark speckling on shelves.
+        lowDetail.layers.set(DETAIL_LAYER);
         distant.add(lowDetail);
       }
       // Recenter each batch for LOD's distance calculation. The instance

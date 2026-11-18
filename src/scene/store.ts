@@ -37,6 +37,7 @@ function frontGaps(a0: number, a1: number, door: { x0: number; x1: number }): [n
 
 export interface StoreParts {
   root: THREE.Group;
+  fittings: THREE.Group;
   doorL: THREE.Object3D;
   doorR: THREE.Object3D;
   signage: ReturnType<typeof buildStoreSignage>;
@@ -47,44 +48,49 @@ export interface StoreParts {
 
 export function buildStore(root: THREE.Object3D, ctx: SceneCtx): StoreParts {
   const g = group(root, 0, 0, 0, 'store');
+  const foundation = group(g, 0, 0, 0, 'store-foundation');
+  const walls = group(g, 0, 0, 0, 'store-walls');
+  const facade = group(g, 0, 0, 0, 'store-facade');
+  const roof = group(g, 0, 0, 0, 'roof');
+  const fittings = group(g, 0, 0, 0, 'store-fittings');
   const wall = toon(P.storeWall);
   const trim = toon(P.storeTrim);
   const cream = toon(P.storeCream);
   const interiorWall = toon(P.interiorWall);
 
   /* ============ 地板 / 天花 / 实体墙 ============ */
-  addBox(g, toon(0xffffff, { map: TX.interiorFloorTex() }), S.x1 - S.x0, 0.16, S.z1 - S.z0,
+  addBox(foundation, toon(0xffffff, { map: TX.interiorFloorTex() }), S.x1 - S.x0, 0.16, S.z1 - S.z0,
     (S.x0 + S.x1) / 2, 0, (S.z0 + S.z1) / 2);
   // 店面下沿的收边条也要在门洞处断开 —— 它只比室内地面高 2.5cm，
   // 但横在门口时仍会被读成一条"门槛"。门洞内只保留本来就有高差的楼板边。
   for (const [a, b] of frontGaps(S.x0 - 0.05, S.x1 + 0.05, DOOR)) {
-    addBox(g, trim, b - a, 0.055, 0.18, (a + b) / 2, S.floorY - 0.03, S.z1 + 0.05);
+    addBox(foundation, trim, b - a, 0.055, 0.18, (a + b) / 2, S.floorY - 0.03, S.z1 + 0.05);
   }
 
-  const ceil = addBox(g, interiorWall, S.x1 - S.x0 - 0.04, 0.1, S.z1 - S.z0 - 0.04,
+  const ceil = addBox(roof, interiorWall, S.x1 - S.x0 - 0.04, 0.1, S.z1 - S.z0 - 0.04,
     (S.x0 + S.x1) / 2, S.ceilY, (S.z0 + S.z1) / 2);
   ceil.castShadow = false;
   ceil.name = 'store-ceiling';
 
   const h = S.ceilY - S.floorY;
   const outerH = S.roofY - S.floorY;
-  addBox(g, wall, S.x1 - S.x0, outerH, S.wallT, (S.x0 + S.x1) / 2, S.floorY, S.z0 + S.wallT / 2, { name: 'store-back-wall' });
-  addBox(g, wall, S.wallT, outerH, S.z1 - S.z0, S.x0 + S.wallT / 2, S.floorY, (S.z0 + S.z1) / 2, { name: 'store-alley-wall' });
-  addBox(g, interiorWall, S.x1 - S.x0 - 0.04, h, 0.02, (S.x0 + S.x1) / 2, S.floorY, S.z0 + S.wallT + 0.012, { cast: false });
-  addBox(g, interiorWall, 0.02, h, S.z1 - S.z0 - 0.04, S.x0 + S.wallT + 0.012, S.floorY, (S.z0 + S.z1) / 2, { cast: false });
+  addBox(walls, wall, S.x1 - S.x0, outerH, S.wallT, (S.x0 + S.x1) / 2, S.floorY, S.z0 + S.wallT / 2, { name: 'store-back-wall' });
+  addBox(walls, wall, S.wallT, outerH, S.z1 - S.z0, S.x0 + S.wallT / 2, S.floorY, (S.z0 + S.z1) / 2, { name: 'store-alley-wall' });
+  addBox(walls, interiorWall, S.x1 - S.x0 - 0.04, h, 0.02, (S.x0 + S.x1) / 2, S.floorY, S.z0 + S.wallT + 0.012, { cast: false });
+  addBox(walls, interiorWall, 0.02, h, S.z1 - S.z0 - 0.04, S.x0 + S.wallT + 0.012, S.floorY, (S.z0 + S.z1) / 2, { cast: false });
 
   /* ============ 玻璃幕墙 ============ */
   const glazing = [
-    ...buildFacade(g, { axis: 'z', plane: S.z1, a0: S.x0, a1: S.x1, door: DOOR }),
-    ...buildFacade(g, { axis: 'x', plane: S.x1, a0: S.z0, a1: S.z1 }),
+    ...buildFacade(facade, { axis: 'z', plane: S.z1, a0: S.x0, a1: S.x1, door: DOOR }),
+    ...buildFacade(facade, { axis: 'x', plane: S.x1, a0: S.z0, a1: S.z1 }),
   ];
 
   // 右墙在玻璃之上的一段实墙 + 立柱：让侧街看进来时有个"框"，
   // 否则整个侧面会通透到能看见对面墙的外侧，空间就没有围合感了。
-  addBox(g, wall, 0.16, S.ceilY - S.glassTop + 0.32, S.z1 - S.z0,
+  addBox(facade, wall, 0.16, S.ceilY - S.glassTop + 0.32, S.z1 - S.z0,
     S.x1 - 0.02, S.glassTop - 0.16, (S.z0 + S.z1) / 2, { cast: false });
   // 侧墙内侧的墙裙（室内看到的白色饰面）
-  addBox(g, interiorWall, 0.02, 0.16, S.z1 - S.z0 - 0.06,
+  addBox(facade, interiorWall, 0.02, 0.16, S.z1 - S.z0 - 0.06,
     S.x1 - 0.11, S.glassTop - 0.16, (S.z0 + S.z1) / 2, { cast: false });
 
   // 玻璃磨砂带 + 贴纸。
@@ -112,19 +118,19 @@ export function buildStore(root: THREE.Object3D, ctx: SceneCtx): StoreParts {
     const film = new THREE.Mesh(geo, filmMat);
     film.position.set((a + b) / 2, filmY, S.z1 + 0.032);
     film.renderOrder = 6;
-    g.add(film);
+    facade.add(film);
     noOutline(film);
   }
   const filmSide = new THREE.Mesh(planeGeo(S.z1 - S.z0 - 0.12, filmH), decal(TX.glassFilmTex(), 0.9));
   filmSide.position.set(S.x1 + 0.032, S.floorY + filmH / 2 - 0.02, (S.z0 + S.z1) / 2);
   filmSide.rotation.y = Math.PI / 2;
   filmSide.renderOrder = 6;
-  g.add(filmSide);
+  facade.add(filmSide);
   noOutline(filmSide);
 
   /* ============ 灯箱、广告与入口雨棚 ============ */
-  const signage = buildStoreSignage(g);
-  const entranceLight = buildEntranceCanopy(g);
+  const signage = buildStoreSignage(fittings);
+  const entranceLight = buildEntranceCanopy(fittings);
   const canX = (DOOR.x0 + DOOR.x1) / 2;
 
   // Broad beams start just inside the glazing and fall outward onto both sidewalks.
@@ -136,13 +142,13 @@ export function buildStore(root: THREE.Object3D, ctx: SceneCtx): StoreParts {
   sideSpill.name = 'store-side-window-spill';
   sideSpill.position.set(S.x1 - 0.12, 2.38, -3.25);
   sideSpill.target.position.set(L.walk.xOuter - 0.55, L.curb, -3.25);
-  g.add(frontSpill, frontSpill.target, sideSpill, sideSpill.target);
+  facade.add(frontSpill, frontSpill.target, sideSpill, sideSpill.target);
 
   /* ============ 自动门 ============ */
   // 门的原点必须落在门洞中心（canX），不是场景原点。
   // 之前 doorRoot 建在 x=0，而门洞中心在 canX≈0.95：
   // 于是两扇门整体偏左 0.95m，滑动时会滑到门洞外面 —— 看起来"门打不开"。
-  const doorRoot = group(g, canX, 0, S.z1 - 0.03, 'auto-door');
+  const doorRoot = group(facade, canX, 0, S.z1 - 0.03, 'auto-door');
   const doorL = new THREE.Group();
   const doorR = new THREE.Group();
   const doorHalf = (DOOR.x1 - DOOR.x0) / 2;
@@ -184,11 +190,10 @@ export function buildStore(root: THREE.Object3D, ctx: SceneCtx): StoreParts {
   addMesh(doorRoot, planeGeo(0.055, 0.055), glow(0xff4030, 2.0), 0.75, 2.66, 0.14).castShadow = false;
 
   // 地垫
-  addBox(g, toon(0x222933), 1.9, 0.04, 1.05, canX, L.curb, S.z1 + 0.62, { r: 0.012 });
-  addBox(g, toon(0x333e4c), 1.7, 0.015, 0.9, canX, L.curb + 0.04, S.z1 + 0.62, { r: 0.02 });
+  addBox(fittings, toon(0x222933), 1.9, 0.04, 1.05, canX, L.curb, S.z1 + 0.62, { r: 0.012 });
+  addBox(fittings, toon(0x333e4c), 1.7, 0.015, 0.9, canX, L.curb + 0.04, S.z1 + 0.62, { r: 0.02 });
 
   /* ============ 屋面 ============ */
-  const roof = group(g, 0, 0, 0, 'roof');
   // 屋面板用较浅的灰色：从俯视角度看，屋顶占了画面的很大一块，
   // 全黑会让整块模型失去"微缩建筑"的体积感。
   addBox(roof, toon(0x7b828e), S.x1 - S.x0 + 0.46, 0.18, S.z1 - S.z0 + 0.46,
@@ -223,21 +228,26 @@ export function buildStore(root: THREE.Object3D, ctx: SceneCtx): StoreParts {
   // 太阳能板
   addBox(roof, toon(0x28374c), 1.7, 0.055, 1.0, 0.1, rY + 0.02, -3.6, { cast: false });
   buildRoofDetails(roof);
-  buildStoreExterior(g);
+  buildStoreExterior(walls);
 
   /* ============ 侧墙细节 ============ */
   for (let i = 0; i < 8; i++) {
-    addBox(g, toon(0xc6cad1), 0.018, 0.5, 0.022, S.x1 + 0.29, S.glassTop + 0.22, S.z0 + 0.7 + i * 0.85, { cast: false });
+    addBox(fittings, toon(0xc6cad1), 0.018, 0.5, 0.022, S.x1 + 0.29, S.glassTop + 0.22, S.z0 + 0.7 + i * 0.85, { cast: false });
   }
   // 侧立面两端的细长灰柱移除，保持从地面到招牌的侧窗视线通透。
   for (let i = 0; i < 4; i++) {
-    addBox(g, glow(0xfff0cf, 0.95), 0.025, 0.045, 1.0, S.x1 + 0.31, 2.66, S.z0 + 1.1 + i * 1.6, { cast: false });
+    addBox(fittings, glow(0xfff0cf, 0.95), 0.025, 0.045, 1.0, S.x1 + 0.31, 2.66, S.z0 + 1.1 + i * 1.6, { cast: false });
   }
 
-  ctx.pieces.push(g, roof);
+  ctx.assembly.add(foundation, 'shell', { fromY: 0.24 });
+  ctx.assembly.add(walls, 'shell', { fromScaleY: 0.08, order: 0.45 });
+  ctx.assembly.add(facade, 'shell', { fromScaleY: 0.08, order: 1 });
+  ctx.assembly.add(roof, 'roof');
+  ctx.assembly.add(fittings, 'roof', { fromY: -0.62, order: 1 });
 
   return {
     root: g,
+    fittings,
     doorL,
     doorR,
     signage, entranceLight, frontSpill, glazing,

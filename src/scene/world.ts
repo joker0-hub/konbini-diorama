@@ -3,7 +3,6 @@
  */
 
 import * as THREE from 'three';
-import { P } from '../core/palette';
 import { group } from '../core/geom';
 import { buildBase, type SceneCtx } from './base';
 import { buildStore, DOOR, type StoreParts } from './store';
@@ -11,8 +10,8 @@ import { buildInterior } from './interior';
 import { buildStreet, type StreetRefs } from './street';
 import { buildDrips, buildLightCone, buildRain, type RainHandles } from './rain';
 import { buildGlassRain } from './glass-rain';
-import { Assembly, phaseWindow } from './assembly';
-import { mergeStaticMeshes } from './merge';
+import { Assembly } from './assembly';
+import { mergeStaticMeshBatches } from './merge';
 import { Environment, type EnvState } from './environment';
 import { buildStarfield } from './stars';
 import { buildSnow, type SnowPatch } from './snow';
@@ -21,7 +20,6 @@ import { createWet, type WetHandles } from './wet';
 import { createWetReflection, type WetReflection } from './wet-reflection';
 import type { SignalHandles } from './signal';
 import { L } from './layout';
-void phaseWindow;
 
 export interface World {
   root: THREE.Group;
@@ -52,7 +50,8 @@ export function buildWorld(envInit: EnvState = { time: 'day', weather: 'clear' }
   let mergeEnabled = true;
   const envInitLocal = envInit;
 
-  const ctx: SceneCtx = { pieces: [], ticks: [], flickers: [], wet: [] };
+  const assembly = new Assembly();
+  const ctx: SceneCtx = { assembly, ticks: [], flickers: [], wet: [] };
 
   /* ---------------- 环境光 ---------------- */
   // 环境光的具体数值由 Environment 在构造时覆盖；
@@ -80,16 +79,16 @@ export function buildWorld(envInit: EnvState = { time: 'day', weather: 'clear' }
   fill.position.set(12, 5, 14);
   root.add(fill);
   /* ---------------- 各层 ---------------- */
-  const { root: baseObj, markings } = buildBase(root, ctx);
+  const { paving, markings } = buildBase(root, ctx);
   const store = buildStore(root, ctx);
-  buildInterior(root, ctx);
+  const interior = buildInterior(root, ctx);
   const street = buildStreet(root, ctx);
 
   /* ---------------- 雨 ---------------- */
   const rainLayer = group(root, 0, 0, 0, 'rain-layer');
   const rain = buildRain(rainLayer, { count: 3000, height: 10, area: 16 });
   rainLayer.traverse((o) => o.layers.set(1));
-  const drips = buildDrips(root, ctx);
+  const drips = buildDrips(store.fittings, ctx);
   const glassRain = buildGlassRain(store.glazing);
   ctx.ticks.push((t) => glassRain.setTime(t));
   const lightCones = [
@@ -110,40 +109,6 @@ export function buildWorld(envInit: EnvState = { time: 'day', weather: 'clear' }
   root.add(snow.root);
   const snowfall = buildSnowfall(root, { count: 1800, height: 11, area: 16.4, surfaces: snow.surfaces });
 
-  /* ---------------- 入场动画 ---------------- */
-  // 分层入场：底座 → 铺装 → 建筑外壳 → 内装 → 屋顶 → 街道 → 小道具。
-  const assembly = new Assembly(root);
-  assembly.add(baseObj, 'base', 0, { depthScale: 1 });
-
-  const interiorGroup = ctx.pieces.find((p) => p.name === 'interior');
-  const streetGroup = ctx.pieces.find((p) => p.name === 'street');
-
-  assembly.add(store.root, 'shell', 0.2, { spread: 0.2 });
-  if (interiorGroup) assembly.add(interiorGroup, 'interior', 0.35, { spread: 0.15 });
-  store.root.traverse((o) => {
-    if (o.name === 'roof') assembly.add(o, 'roof', 0.4, { spread: 0.1 });
-  });
-  if (streetGroup) assembly.add(streetGroup, 'street', 0.3, { spread: 0.4 });
-
-  for (const piece of ctx.pieces) {
-    if (piece === baseObj || piece === store.root || piece === interiorGroup || piece === streetGroup) continue;
-    assembly.add(piece, 'props', 0.5, { spread: 0.3 });
-  }
-
-  // 落位完成后合并静态几何：draw call 从 ~1700 降到几百，
-  // 拖动/缩放才能真正跟手。合并必须在动画结束后做，
-  // 否则会打断逐件的位移与缩放。
-  let merged = false;
-  const doMerge = () => {
-    if (merged || !mergeEnabled) return;
-    merged = true;
-    mergeStaticMeshes(root, {
-      // 这些子树里的网格每帧都在动（或被单独控制），不能烘焙
-      excludeNames: ['auto-door', 'rain-layer', 'snow-layer', 'sakura-tree', 'umbrella-stand'],
-    });
-  };
-  assembly.onDone = doMerge;
-
   /* ---------------- 星空 ---------------- */
   const stars = buildStarfield();
   root.add(stars.mesh);
@@ -152,31 +117,45 @@ export function buildWorld(envInit: EnvState = { time: 'day', weather: 'clear' }
   // 反光片/积水暗斑/涟漪都在构建时登记到 ctx.wet；
   // 这里统一交给一个控制器，避免"晴天还是湿的"。
   const wet = createWet(ctx.wet);
-  const wetReflection = createWetReflection(baseObj, [
-    rain.mesh, drips.root, ...glassRain.layers, ...lightCones, ...ctx.wet.map(({ mesh }) => mesh),
-    markings,
-  ]);
+  const reflectionExclusions: THREE.Object3D[] = [
+    rain.mesh, drips.root, ...glassRain.layers, ...lightCones, ...ctx.wet.map(({ mesh }) => mesh), markings,
+  ];
+  // Shelf trim is subpixel in the softened ground reflection. Keep the shop
+  // fixtures and glazing in the capture and skip the small merchandise batches.
+  interior.traverse((object) => {
+    if (object instanceof THREE.InstancedMesh) reflectionExclusions.push(object);
+  });
+  const wetReflection = createWetReflection(paving, reflectionExclusions);
   ctx.ticks.push((t) => wetReflection.setTime(t));
 
   /* ---------------- 环境：时段 × 天气 ---------------- */
-  const collectLights = (group: THREE.Object3D | undefined) => {
+  // Keep the light count stable while animated groups appear. Their intensities
+  // stay at zero until the lighting stage, so newly visible fixtures do not
+  // force Three.js to compile a different shader for every material.
+  const localLights = group(root, 0, 0, 0, 'local-lights');
+  const collectLights = (group: THREE.Object3D) => {
     const lights: { light: THREE.PointLight | THREE.SpotLight; base: number }[] = [];
-    group?.traverse((object) => {
+    group.traverse((object) => {
       if (object instanceof THREE.PointLight || object instanceof THREE.SpotLight) {
         lights.push({ light: object, base: object.intensity });
       }
     });
+    for (const { light } of lights) {
+      localLights.attach(light);
+      if (light instanceof THREE.SpotLight) localLights.attach(light.target);
+    }
     return lights;
   };
-  const interiorLights = collectLights(interiorGroup);
+  const interiorLights = collectLights(interior);
   const shopLights = collectLights(store.root);
-  const streetLights = collectLights(streetGroup);
+  const streetLights = collectLights(street.root).filter(({ light }) => light !== street.signal.light);
 
   // 用 Environment 的插值系数缩放各灯，门开启时再微调橱窗溢光。
   let signageScale = 1;
   let interiorScale = 1;
   let starOpacity = 1;
   let snowfallOpacity = 0;
+  let rainDensity = 0;
   /** 当前地面湿度（0..1），信号灯的地面反光要用 */
   let wetness = 1;
 
@@ -192,16 +171,11 @@ export function buildWorld(envInit: EnvState = { time: 'day', weather: 'clear' }
         interiorScale = v;
       },
       setRainDensity(v) {
+        rainDensity = v;
         rain.setDensity(v);
         drips.setDensity(v);
         glassRain.setDensity(v);
         street.umbrellaStand.setRain(v);
-        const on = v > 0.02;
-        const coneOpacity = v * THREE.MathUtils.lerp(0.008, 0.052, signageScale);
-        for (const cone of lightCones) {
-          cone.visible = on;
-          cone.material.uniforms.uOpacity.value = coneOpacity;
-        }
         // 涟漪只在下雨时出现（雪天/晴天都关掉）
         wet.setRain(v);
         wetReflection.setRain(v);
@@ -219,11 +193,28 @@ export function buildWorld(envInit: EnvState = { time: 'day', weather: 'clear' }
         snowfallOpacity = v;
       },
       setSnow(v) {
-        snow.update(v);
+        if (assembly.finished) snow.update(v);
       },
     },
     envInitLocal,
   );
+  assembly.onDone = () => {
+    snow.update(environment.getSnow());
+  };
+
+  let batches: ReturnType<typeof mergeStaticMeshBatches> | undefined;
+  let merged = false;
+  const advanceMerge = (deadline: number) => {
+    if (!assembly.finished || !mergeEnabled || merged) return;
+    batches ??= mergeStaticMeshBatches(root, {
+      excludeNames: ['auto-door', 'rain-layer', 'snow-layer', 'sakura-tree', 'umbrella-stand'],
+    });
+    // Each batch replaces its originals in the same frame. Spread vertices
+    // and GPU uploads across frames so the final assembly frame stays responsive.
+    do {
+      merged = !!batches.next().done;
+    } while (!merged && performance.now() < deadline);
+  };
 
   /* ---------------- 自动门 / 招牌闪烁 ---------------- */
   let doorTimer = 2.0;
@@ -233,12 +224,12 @@ export function buildWorld(envInit: EnvState = { time: 'day', weather: 'clear' }
 
   const update = (t: number, dt: number, cam: THREE.Camera, weatherDt = dt) => {
     // Presentation follows elapsed time, not the physics step capped at 50 ms.
-    // Otherwise a seven-second opening takes minutes on software/slow GPUs.
+    // This keeps the opening on time even on slow GPUs.
     assembly.update(weatherDt);
     environment.update(weatherDt);
     rain.update(t, dt, cam);
     stars.update(t, starOpacity);
-    street.sakura.update(t, dt);
+    street.sakura.update(t, dt, cam);
 
     for (const fn of ctx.ticks) fn(t, dt);
     snowfall.update(t, snowfallOpacity);
@@ -246,11 +237,19 @@ export function buildWorld(envInit: EnvState = { time: 'day', weather: 'clear' }
     // 地面反光同时取决于湿地（晴天几乎看不见）。
     street.signal.update(t, dt, { signage: signageScale, wetness });
 
-    const exteriorScale = THREE.MathUtils.lerp(0.18, 1, signageScale);
-    for (const { light, base } of interiorLights) light.intensity = base * interiorScale;
+    const lighting = assembly.lighting;
+    street.signal.light.intensity *= lighting;
+    const exteriorScale = THREE.MathUtils.lerp(0.18, 1, signageScale) * lighting;
+    const insideScale = interiorScale * lighting;
+    for (const { light, base } of interiorLights) light.intensity = base * insideScale;
     for (const { light, base } of shopLights) light.intensity = base * exteriorScale;
     for (const { light, base } of streetLights) {
-      light.intensity = base * (light === street.streetLamp ? exteriorScale : interiorScale);
+      light.intensity = base * (light === street.streetLamp ? exteriorScale : insideScale);
+    }
+    const coneOpacity = rainDensity * THREE.MathUtils.lerp(0.008, 0.052, signageScale) * lighting;
+    for (const cone of lightCones) {
+      cone.visible = rainDensity > 0.02 && lighting > 0;
+      cone.material.uniforms.uOpacity.value = coneOpacity;
     }
 
     // 招牌呼吸 + 偶发闪烁（再乘上环境的招牌亮度系数）
@@ -258,12 +257,12 @@ export function buildWorld(envInit: EnvState = { time: 'day', weather: 'clear' }
     const glitch = Math.sin(t * 43.7) > 0.9978 || Math.sin(t * 19.1) > 0.9972 ? 0.72 : 1;
     for (const f of ctx.flickers) {
       const wobble = Math.sin(t * (2.1 + f.seed) + f.seed * 3.1) * f.amp;
-      f.mat.opacity = Math.max(0, (f.base + wobble) * breath * glitch * signageScale);
+      f.mat.opacity = Math.max(0, (f.base + wobble) * breath * glitch * signageScale * lighting);
     }
     for (const material of store.signage.halos) {
-      material.opacity = (0.22 + Math.sin(t * 0.6) * 0.015) * glitch * signageScale;
+      material.opacity = (0.22 + Math.sin(t * 0.6) * 0.015) * glitch * signageScale * lighting;
     }
-    const diffuser = THREE.MathUtils.lerp(0.58, 0.77, signageScale);
+    const diffuser = THREE.MathUtils.lerp(0.35, THREE.MathUtils.lerp(0.58, 0.77, signageScale), lighting);
     for (const material of store.signage.prints) material.color.setScalar(diffuser);
 
     // 自动门：用「累计时间」驱动，不依赖单帧 dt，
@@ -291,6 +290,7 @@ export function buildWorld(envInit: EnvState = { time: 'day', weather: 'clear' }
     if (rLeaf) rLeaf.position.x = half / 2 + slide;
 
     store.frontSpill.intensity *= 1 + doorProgress * 0.15;
+    advanceMerge(performance.now() + 2);
   };
 
   void doorTimer;
@@ -307,7 +307,7 @@ export function buildWorld(envInit: EnvState = { time: 'day', weather: 'clear' }
     setMergeEnabled(on: boolean) {
       mergeEnabled = on;
     },
-    doMerge,
+    doMerge: () => advanceMerge(Infinity),
   };
 }
 

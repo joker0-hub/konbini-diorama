@@ -10,13 +10,14 @@ import { P } from '../core/palette';
 import { addBox, addCyl, flatPolygon, group, noOutline, uvPlaneGeo } from '../core/geom';
 import { decal, toon, RAMP_SMOOTH } from '../core/materials';
 import * as TX from '../core/textures';
+import type { Assembly } from './assembly';
 import { L } from './layout';
 import type { WetEntry } from './wet';
 
 const H = L.half;
 
 export interface SceneCtx {
-  pieces: THREE.Object3D[];
+  assembly: Assembly;
   ticks: ((t: number, dt: number) => void)[];
   flickers: { mat: THREE.MeshBasicMaterial; base: number; seed: number; amp: number }[];
   /** 需要跟随「湿度 / 降雨」淡入淡出的湿地面层 */
@@ -24,23 +25,25 @@ export interface SceneCtx {
 }
 
 export function buildBase(root: THREE.Object3D, ctx: SceneCtx) {
-  const g = group(root, 0, 0, 0, 'base');
+  const base = group(root, 0, 0, 0, 'base');
+  const pedestal = group(base, 0, 0, 0, 'pedestal');
+  const g = group(base, 0, 0, 0, 'paving');
 
   /* ---------------- 台座 ---------------- */
   const stone = toon(P.baseStone);
   const stoneLight = toon(P.baseStoneLight);
-  addBox(g, stone, H * 2 + 0.6, 0.7, H * 2 + 0.6, 0, -0.78, 0, { r: 0.05 });
-  addBox(g, stoneLight, H * 2 + 0.46, 0.12, H * 2 + 0.46, 0, -0.14, 0);
-  addBox(g, toon(0x0b0e15), H * 2 + 0.63, 0.045, H * 2 + 0.63, 0, -0.42, 0);
-  addBox(g, stone, H * 2 + 0.22, 0.14, H * 2 + 0.22, 0, -0.9, 0, { r: 0.03 });
+  addBox(pedestal, stone, H * 2 + 0.6, 0.7, H * 2 + 0.6, 0, -0.78, 0, { r: 0.05 });
+  addBox(pedestal, stoneLight, H * 2 + 0.46, 0.12, H * 2 + 0.46, 0, -0.14, 0);
+  addBox(pedestal, toon(0x0b0e15), H * 2 + 0.63, 0.045, H * 2 + 0.63, 0, -0.42, 0);
+  addBox(pedestal, stone, H * 2 + 0.22, 0.14, H * 2 + 0.22, 0, -0.9, 0, { r: 0.03 });
   // 铭牌
   {
     const plate = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 0.26), toon(0x9c8a5e));
     plate.position.set(0, -0.52, H + 0.31);
-    g.add(plate);
+    pedestal.add(plate);
     const txt = new THREE.Mesh(new THREE.PlaneGeometry(1.78, 0.2), decal(namePlateTex(), 1));
     txt.position.set(0, -0.52, H + 0.316);
-    g.add(txt);
+    pedestal.add(txt);
     noOutline(txt);
   }
 
@@ -265,8 +268,9 @@ export function buildBase(root: THREE.Object3D, ctx: SceneCtx) {
     (ripple.material as THREE.ShaderMaterial).uniforms.uTime.value = t;
   });
 
-  ctx.pieces.push(g);
-  return { root: g, markings };
+  ctx.assembly.add(pedestal, 'base', { fromY: -0.85 });
+  ctx.assembly.add(g, 'paving', { fromY: 0.42 });
+  return { paving: g, markings };
 }
 
 function roadGeometry(tile: number): THREE.BufferGeometry {

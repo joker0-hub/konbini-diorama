@@ -35,7 +35,6 @@ interface Bucket {
   cast: boolean;
   receive: boolean;
   renderOrder: number;
-  geos: THREE.BufferGeometry[];
   /** 这个桶里真正被合并的网格。删除时必须按桶删，不能按材质删。 */
   meshes: THREE.Mesh[];
 }
@@ -56,7 +55,24 @@ function isExcluded(obj: THREE.Object3D, exclude: Set<string>): boolean {
 export function mergeStaticMeshes(
   root: THREE.Object3D,
   opts: MergeOptions = {},
-): { before: number; after: number; buckets: number } {
+): MergeStats {
+  const batches = mergeStaticMeshBatches(root, opts);
+  let next = batches.next();
+  while (!next.done) next = batches.next();
+  return next.value;
+}
+
+interface MergeStats {
+  before: number;
+  after: number;
+  buckets: number;
+}
+
+/** Advance static batching between frames when the assembled scene is already visible. */
+export function* mergeStaticMeshBatches(
+  root: THREE.Object3D,
+  opts: MergeOptions = {},
+): Generator<void, MergeStats> {
   const exclude = new Set(opts.excludeNames ?? []);
   const buckets = new Map<string, Bucket>();
 
@@ -82,8 +98,7 @@ export function mergeStaticMeshes(
     if (m.userData.noMerge) return;
     before++;
 
-    // 用几何体自身 uuid + 材质 uuid 决定桶；几何体可能被多个网格共享，
-    // 因此必须在烘焙时 clone。
+    // Bucket meshes that share a material and render settings.
     const key = [
       mat.uuid,
       m.layers.mask,
@@ -100,49 +115,47 @@ export function mergeStaticMeshes(
         cast: m.castShadow,
         receive: m.receiveShadow,
         renderOrder: m.renderOrder,
-        geos: [],
         meshes: [],
       };
       buckets.set(key, b);
     }
     b.meshes.push(m);
-
-    const g = m.geometry.clone();
-    // 只保留合并所需的最小属性集，避免不同网格属性集不一致导致合并失败
-    for (const name of Object.keys(g.attributes)) {
-      if (!['position', 'normal', 'uv'].includes(name)) g.deleteAttribute(name);
-    }
-    if (!g.attributes.uv) {
-      const count = g.attributes.position.count;
-      g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(count * 2), 2));
-    }
-    if (!g.index) {
-      // 统一成索引几何，避免 mergeGeometries 因混合索引/非索引失败
-      const idx = new Uint32Array(g.attributes.position.count);
-      for (let i = 0; i < idx.length; i++) idx[i] = i;
-      g.setIndex(new THREE.BufferAttribute(idx, 1));
-    }
-    // 烘焙世界矩阵（合并结果挂在 root 上，root 自身的变换要抵消掉）
-    mtx.copy(rootInverse).multiply(m.matrixWorld);
-    g.applyMatrix4(mtx);
-    b.geos.push(g);
   });
 
   let after = before;
   let bucketCount = 0;
 
   for (const b of buckets.values()) {
-    if (b.geos.length < 2) continue;
+    if (b.meshes.length < 2) continue;
+    const geos: THREE.BufferGeometry[] = [];
+    for (const m of b.meshes) {
+      const g = m.geometry.clone();
+      for (const name of Object.keys(g.attributes)) {
+        if (!['position', 'normal', 'uv'].includes(name)) g.deleteAttribute(name);
+      }
+      if (!g.attributes.uv) {
+        const count = g.attributes.position.count;
+        g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(count * 2), 2));
+      }
+      if (!g.index) {
+        // Use indexed geometry consistently within each batch.
+        const idx = new Uint32Array(g.attributes.position.count);
+        for (let i = 0; i < idx.length; i++) idx[i] = i;
+        g.setIndex(new THREE.BufferAttribute(idx, 1));
+      }
+      mtx.copy(rootInverse).multiply(m.matrixWorld);
+      geos.push(g.applyMatrix4(mtx));
+      yield;
+    }
     let merged: THREE.BufferGeometry | null = null;
     try {
-      merged = mergeGeometries(b.geos, false);
+      merged = mergeGeometries(geos, false);
     } catch {
       merged = null;
+    } finally {
+      for (const g of geos) g.dispose();
     }
-    if (!merged) {
-      for (const g of b.geos) g.dispose();
-      continue;
-    }
+    if (!merged) continue;
     merged.computeBoundingSphere();
     merged.computeBoundingBox();
 
@@ -154,11 +167,8 @@ export function mergeStaticMeshes(
     mesh.name = 'merged-static';
     root.add(mesh);
 
-    // 原来那一批几何体（clone 的）已经并进 merged，可以释放
-    for (const g of b.geos) g.dispose();
-
     bucketCount++;
-    after -= b.geos.length - 1;
+    after -= b.meshes.length - 1;
     // 只摘掉这个桶里确实被合并的网格。
     // 旧版按“材质相同”删除：同一个材质可能因为 castShadow / receiveShadow /
     // 图层不同而被分到另一个桶，而那个桶可能只有 1 个网格、根本没合并 ——
@@ -166,6 +176,7 @@ export function mergeStaticMeshes(
     // 热食柜的柜体就是被这样误删的。
     // 源头网格的几何是共享缓存，不能 dispose；只从场景里摘掉。
     for (const v of b.meshes) v.removeFromParent();
+    yield;
   }
 
   // 未被合并的单件仍留在场景里

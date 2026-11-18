@@ -12,7 +12,7 @@
  */
 
 import * as THREE from 'three';
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { OUTLINE_PROXY_LAYER } from '../core/geom';
 import type { WetReflection } from '../scene/wet-reflection';
 
 const VERT = /* glsl */ `
@@ -23,11 +23,36 @@ const VERT = /* glsl */ `
   }
 `;
 
+const BLOOM_FRAG = /* glsl */ `
+  uniform sampler2D tSource;
+  uniform vec2 uStep;
+  uniform float uThreshold;
+  varying vec2 vUv;
+
+  vec3 sampleGlow(vec2 uv) {
+    vec3 color = max(texture2D(tSource, uv).rgb, 0.0);
+    if (uThreshold < 0.0) return color;
+    float light = dot(color, vec3(0.2126, 0.7152, 0.0722));
+    return color * smoothstep(uThreshold, uThreshold + 0.12, light) / max(1.0, light);
+  }
+
+  void main() {
+    vec2 innerStep = uStep * 1.384615;
+    vec2 outerStep = uStep * 3.230769;
+    vec3 glow = sampleGlow(vUv) * 0.227027;
+    glow += (sampleGlow(vUv + innerStep) + sampleGlow(vUv - innerStep)) * 0.316216;
+    glow += (sampleGlow(vUv + outerStep) + sampleGlow(vUv - outerStep)) * 0.070270;
+    gl_FragColor = vec4(glow, 1.0);
+  }
+`;
+
 const FRAG = /* glsl */ `
   #include <packing>
 
   uniform sampler2D tColor;
   uniform sampler2D tDepth;
+  uniform sampler2D tBloom;
+  uniform float uBloomStrength;
   /** 花冠遮罩：R 通道 = 该像素属于「不描边的密集面片」的强度 */
   uniform sampler2D tMask;
   uniform vec2 uResolution;
@@ -50,7 +75,9 @@ const FRAG = /* glsl */ `
     float d = texture2D(tDepth, uv).x;
     float viewZ = perspectiveDepthToViewZ(d, uNear, uFar);
     return viewZToOrthographicDepth(viewZ, uNear, uFar);
-  }  void main() {
+  }
+
+  void main() {
     vec2 texel = uEdgeWidth / uResolution;
 
     // 5 点采样做拉普拉斯：中心 + 上下左右
@@ -68,7 +95,7 @@ const FRAG = /* glsl */ `
     float nearFade = smoothstep(0.0, 0.015, c);
 
     // 用深度差本身的相对量做阈值：同一平面上不会出线
-    float edge = smoothstep(0.00006, 0.0008, lap) * (1.0 - depthFade) * nearFade;
+    float edge = smoothstep(0.00008, 0.00105, lap) * (1.0 - depthFade) * nearFade;
 
     // 花冠遮罩：这一层专门用来"抹掉"密集小面片区域的描边。
     // 花簇本身不参与描边（否则每片花瓣被描黑边），但那样描边就会
@@ -79,8 +106,9 @@ const FRAG = /* glsl */ `
     edge *= (1.0 - canopy);
 
     // rt 里是线性 HDR 值
-    vec4 tex = texture2D(tColor, vUv);
-    vec3 col = max(tex.rgb, 0.0) * uExposure;
+    vec3 scene = texture2D(tColor, vUv).rgb;
+    vec3 glow = texture2D(tBloom, vUv).rgb * uBloomStrength;
+    vec3 col = max(scene + glow, 0.0) * uExposure;
 
     if (uDebug > 0.5) {
       gl_FragColor = vec4(vec3(edge), 1.0);
@@ -117,9 +145,9 @@ const FRAG = /* glsl */ `
 `;
 
 export interface Pipeline {
-  render: (t: number, dt: number) => void;
+  render: (t: number, dt: number, refreshShadows?: boolean) => void;
   setSize: (w: number, h: number) => void;
-  bloom: UnrealBloomPass;
+  bloom: { strength: number; threshold: number };
   setEdgeStrength: (v: number) => void;
   exposure: { value: number };
   debugEdges: (on: boolean) => void;
@@ -140,7 +168,7 @@ export function createPipeline(
   wetReflection: WetReflection,
 ): Pipeline {
   const size = new THREE.Vector2();
-  renderer.getSize(size);
+  renderer.getDrawingBufferSize(size);
 
   // 场景目标：半浮点颜色 + MSAA 深度缓冲（无需深度纹理）
   //
@@ -188,13 +216,21 @@ export function createPipeline(
   const edgeMaterial = new THREE.MeshDepthMaterial();
   edgeMaterial.colorWrite = false;
 
-  const bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.42, 0.55, 0.86);
-  // Bound the energy sent into the blur, leaving the sharp HDR scene intact.
-  // Otherwise very bright shop lights spread a veil over the printed sign text.
-  bloom.materialHighPassFilter.fragmentShader = bloom.materialHighPassFilter.fragmentShader.replace(
-    'gl_FragColor = mix( outputColor, texel, alpha );',
-    'gl_FragColor = mix( outputColor, vec4(texel.rgb / max(1.0, v), texel.a), alpha );',
-  );
+  const bloom = { strength: 0.42, threshold: 0.86 };
+  const bloomHorizontal = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
+  const bloomVertical = bloomHorizontal.clone();
+  const bloomUniforms = {
+    tSource: { value: rt.texture },
+    uStep: { value: new THREE.Vector2() },
+    uThreshold: { value: bloom.threshold },
+  };
+  const bloomMaterial = new THREE.ShaderMaterial({
+    vertexShader: VERT,
+    fragmentShader: BLOOM_FRAG,
+    uniforms: bloomUniforms,
+    depthTest: false,
+    depthWrite: false,
+  });
 
   /**
    * 花冠遮罩目标。
@@ -214,14 +250,16 @@ export function createPipeline(
 
   const uniforms = {
     tColor: { value: rt.texture },
+    tBloom: { value: bloomVertical.texture },
+    uBloomStrength: { value: bloom.strength },
     // 描边读这张「不含花瓣」的深度图，而不是主 rt 的深度
     tDepth: { value: edgeDepth },
     tMask: { value: maskTarget.texture },
     uResolution: { value: new THREE.Vector2(size.x, size.y) },
     uNear: { value: camera.near },
     uFar: { value: camera.far },
-    uEdgeStrength: { value: 0.92 },
-    uEdgeWidth: { value: 1.1 },
+    uEdgeStrength: { value: 0.79 },
+    uEdgeWidth: { value: 1 },
     uLineColor: { value: new THREE.Color(0x0b1220) },
     uVignette: { value: 0.55 },
     uSat: { value: 1.14 },
@@ -284,13 +322,16 @@ export function createPipeline(
       // than the sharp scene/outline buffers.
       maskTarget.setSize(Math.max(1, Math.round(w / 2)), Math.max(1, Math.round(h / 2)));
       uniforms.uResolution.value.set(w, h);
-      bloom.setSize(Math.max(1, Math.round(w / 2)), Math.max(1, Math.round(h / 2)));
+      const glowWidth = Math.max(1, Math.round(w / 4));
+      const glowHeight = Math.max(1, Math.round(h / 4));
+      bloomHorizontal.setSize(glowWidth, glowHeight);
+      bloomVertical.setSize(glowWidth, glowHeight);
       wetReflection.resize(w, h);
     },
-    // 第一个参数是累计时间：bloom 只需要 dt，
-    // 但保留 `_t` 让签名与调用处一致（也是给后续加时间类效果留的位置）。
-    render(_t, dt) {
+    render(_t, _dt, refreshShadows = true) {
       const savedAutoReset = renderer.info.autoReset;
+      const savedAutoClear = renderer.autoClear;
+      renderer.autoClear = true;
       renderer.info.autoReset = false;
       renderer.info.reset();
       /* ---- 0a. 花冠遮罩 pass：只画代理体，白色剪影 ---- */
@@ -309,11 +350,9 @@ export function createPipeline(
       renderer.shadowMap.autoUpdate = false;
       renderer.shadowMap.needsUpdate = false;
       scene.background = null;
-      camera.layers.disableAll();
-      camera.layers.enable(3);
+      camera.layers.set(OUTLINE_PROXY_LAYER);
       renderer.setRenderTarget(maskTarget);
       renderer.setClearColor(0x000000, 1);
-      renderer.clear();
       renderer.render(scene, camera);
 
       /* ---- 0b. Unlit depth only: opaque outline geometry, no glass/weather ---- */
@@ -323,19 +362,16 @@ export function createPipeline(
       camera.layers.enable(0);
       scene.overrideMaterial = edgeMaterial;
       renderer.setRenderTarget(edgeTarget);
-      renderer.clear();
       renderer.render(scene, camera);
       camera.layers.mask = savedMask;
       scene.overrideMaterial = savedOverride;
       scene.background = savedBackground;
-      renderer.shadowMap.autoUpdate = savedShadowAutoUpdate;
-      renderer.shadowMap.needsUpdate = savedShadowNeedsUpdate;
+      renderer.shadowMap.needsUpdate = refreshShadows || savedShadowNeedsUpdate;
       // 恢复全局清屏色，别把辅助 pass 的临时设置泄漏给主渲染
       renderer.setClearColor(savedClear, savedAlpha);
 
       /* ---- 1. 场景 → rt（完整渲染，含层 2 的花瓣） ---- */
       renderer.setRenderTarget(rt);
-      renderer.clear();
       const beforeCalls = renderer.info.render.calls;
       const beforeTriangles = renderer.info.render.triangles;
       const capture = wetReflection.captureStats;
@@ -346,16 +382,33 @@ export function createPipeline(
       sceneStats.calls = renderer.info.render.calls - beforeCalls - capture.calls;
       sceneStats.triangles = renderer.info.render.triangles - beforeTriangles - capture.triangles;
 
-      // 2. bloom 直接加色混合回 rt（needsSwap=false 的通行做法）
-      bloom.render(renderer, rt, rt, dt, false);
+      // Blur at quarter resolution, then composite on the screen. This avoids
+      // binding and resolving the multisampled scene target a second time.
+      if (bloom.strength > 0) {
+        quad.material = bloomMaterial;
+        bloomUniforms.tSource.value = rt.texture;
+        bloomUniforms.uThreshold.value = bloom.threshold;
+        bloomUniforms.uStep.value.set(1 / bloomHorizontal.width, 0);
+        renderer.setRenderTarget(bloomHorizontal);
+        renderer.render(quadScene, quadCam);
+
+        bloomUniforms.tSource.value = bloomHorizontal.texture;
+        bloomUniforms.uThreshold.value = -1;
+        bloomUniforms.uStep.value.set(0, 1 / bloomVertical.height);
+        renderer.setRenderTarget(bloomVertical);
+        renderer.render(quadScene, quadCam);
+      }
 
       // 3. 描边 + 调色 → 屏幕
+      uniforms.uBloomStrength.value = bloom.strength;
+      quad.material = quadMat;
       renderer.setRenderTarget(null);
-      renderer.clear();
       renderer.render(quadScene, quadCam);
       frameStats.calls = renderer.info.render.calls;
       frameStats.triangles = renderer.info.render.triangles;
+      renderer.shadowMap.autoUpdate = savedShadowAutoUpdate;
       renderer.info.autoReset = savedAutoReset;
+      renderer.autoClear = savedAutoClear;
     },
   };
 }

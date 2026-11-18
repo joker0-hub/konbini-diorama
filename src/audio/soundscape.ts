@@ -1,4 +1,5 @@
 import type { EnvState } from '../scene/environment';
+import { loadRainLoop } from './rain';
 
 export type SoundEffect = 'purchase' | 'impact' | 'pickup' | 'recycle' | 'ui';
 export type VolumeChannel = 'master' | 'ambience' | 'effects' | 'music';
@@ -20,13 +21,14 @@ export interface SoundState extends SoundSettings {
 }
 
 const STORAGE_KEY = 'hoshino-sound-v1';
-const DEFAULTS: SoundSettings = { master: 0.65, ambience: 0.6, effects: 0.65, music: 0.35, muted: false };
+const DEFAULTS: SoundSettings = { master: 0.45, ambience: 0.6, effects: 0.65, music: 0.35, muted: false };
+const RAIN_LEVEL = 0.23;
 const clamp = (v: number): number => Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0;
 
 // Project-relative so the bundled song also works on GitHub Pages subpaths.
 const BUNDLED_MUSIC = 'audio/night-dancer.mp3';
 
-/** One lazy audio graph; procedural ambience and SFX need no downloads. */
+/** One lazy audio graph for ambience, effects and music. */
 export function createSoundscape(initial: EnvState) {
   let settings = { ...DEFAULTS };
   try {
@@ -48,6 +50,8 @@ export function createSoundscape(initial: EnvState) {
   let analyser: AnalyserNode;
   const waveform = new Float32Array(512);
   let rain: GainNode;
+  let rainReady = false;
+  let rainLoading = false;
   let wind: GainNode;
   let hum: GainNode;
   let noise: AudioBuffer;
@@ -92,9 +96,12 @@ export function createSoundscape(initial: EnvState) {
   }
   function syncEnvironment(): void {
     if (!context) return;
-    ramp(rain.gain, environment.weather === 'rain' ? 0.27 : 0, 0.5);
-    ramp(wind.gain, environment.weather === 'snow' ? 0.23 : environment.weather === 'rain' ? 0.09 : 0.07, 0.6);
-    ramp(hum.gain, environment.time === 'night' ? 0.012 : 0.006, 0.6);
+    const rainy = environment.weather === 'rain';
+    const rainAudible = active && rainy;
+    if (rainAudible && !rainReady && !rainLoading) void startRainLoop(context);
+    ramp(rain.gain, rainAudible && rainReady ? RAIN_LEVEL : 0, rainAudible ? 0.7 : 0.45);
+    ramp(wind.gain, rainy ? 0 : environment.weather === 'snow' ? 0.23 : 0.07, rainy ? 0.18 : 0.6);
+    ramp(hum.gain, rainy ? 0 : environment.time === 'night' ? 0.012 : 0.006, rainy ? 0.18 : 0.6);
   }
   function own<T extends AudioScheduledSourceNode>(source: T, cleanup: AudioNode[] = []): T {
     sources.add(source);
@@ -122,16 +129,36 @@ export function createSoundscape(initial: EnvState) {
     oscillator.start(t);
     oscillator.stop(t + duration + 0.02);
   }
-  function noiseLayer(type: BiquadFilterType, frequency: number, level: GainNode): void {
-    const source = own(context!.createBufferSource());
-    source.buffer = noise;
+  function ambienceLoop(buffer: AudioBuffer, level: GainNode, bands: [BiquadFilterType, number][] = []): void {
+    const ctx = context!;
+    const filters = bands.map(([type, frequency]) => {
+      const filter = ctx.createBiquadFilter();
+      filter.type = type;
+      filter.frequency.value = frequency;
+      filter.Q.value = 0.55;
+      return filter;
+    });
+    const source = own(ctx.createBufferSource(), filters);
+    source.buffer = buffer;
     source.loop = true;
-    const filter = context!.createBiquadFilter();
-    filter.type = type;
-    filter.frequency.value = frequency;
-    filter.Q.value = 0.55;
-    source.connect(filter).connect(level).connect(ambience);
-    source.start(0, Math.random() * 4);
+    let output: AudioNode = source;
+    for (const filter of filters) output = output.connect(filter);
+    output.connect(level);
+    source.start(0, Math.random() * buffer.duration);
+  }
+  async function startRainLoop(ctx: AudioContext): Promise<void> {
+    rainLoading = true;
+    try {
+      const buffer = await loadRainLoop(ctx);
+      if (destroyed) return;
+      ambienceLoop(buffer, rain);
+      rainReady = true;
+      syncEnvironment();
+    } catch (error) {
+      if (!destroyed) console.warn('Unable to load the rain recording', error);
+    } finally {
+      rainLoading = false;
+    }
   }
   function buildGraph(): void {
     const ctx = context!;
@@ -158,13 +185,16 @@ export function createSoundscape(initial: EnvState) {
     rain = ctx.createGain(); rain.gain.value = 0;
     wind = ctx.createGain(); wind.gain.value = 0;
     hum = ctx.createGain(); hum.gain.value = 0;
-    noiseLayer('highpass', 800, rain);
-    noiseLayer('lowpass', 360, wind);
+    rain.connect(ambience);
+    ambienceLoop(noise, wind, [['lowpass', 360]]);
+    // Keep gusts on their own gain so they cannot bypass the weather's wind level.
+    const gust = ctx.createGain();
+    wind.connect(gust).connect(ambience);
     const breeze = own(ctx.createOscillator());
     const depth = ctx.createGain();
     breeze.frequency.value = 0.13;
-    depth.gain.value = 0.025;
-    breeze.connect(depth).connect(wind.gain);
+    depth.gain.value = 0.13;
+    breeze.connect(depth).connect(gust.gain);
     breeze.start();
     const motor = own(ctx.createOscillator());
     motor.frequency.value = 110;
@@ -236,7 +266,9 @@ export function createSoundscape(initial: EnvState) {
     },
     setActive(next: boolean) {
       if (active === next) return;
-      active = next; syncVolumes();
+      active = next;
+      syncVolumes();
+      syncEnvironment();
       if (next) void playMusic();
     },
     setEnvironment(next: EnvState) { environment = { ...next }; syncEnvironment(); },

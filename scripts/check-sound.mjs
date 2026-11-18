@@ -36,14 +36,28 @@ for (let i = 0; i < samples; i++) wav.writeInt16LE(Math.round(Math.sin(i * Math.
 fs.writeFileSync(fixture, wav);
 
 try {
-  await page.goto(base + '?instant=1&weather=clear', { waitUntil: 'domcontentloaded', timeout: 90000 });
+  await page.goto(base + '?instant=1&weather=rain', { waitUntil: 'domcontentloaded', timeout: 90000 });
   await page.waitForFunction(() => !!window.__konbini, { timeout: 90000 });
   check('No audio context or autoplay before a gesture', (await inspect()).context === 'uninitialized');
+  check('The default master volume starts at 45%', (await state()).master === 0.45);
   await page.click('.sound-toggle');
   await page.waitForSelector('.sound-panel[open]');
   await page.waitForFunction(() => window.__konbini.sound.getState().ready);
-  await sleep(500);
-  check('Trusted button click starts real ambient output', (await inspect()).rms > 0.00001);
+  await page.waitForFunction(() => window.__konbini.sound.inspect().rain > 0.2);
+  const startingRain = await page.evaluate(async () => {
+    const { sound } = window.__konbini;
+    const levels = [];
+    for (let i = 0; i < 180; i++) {
+      levels.push(sound.inspect().rms);
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    levels.sort((a, b) => a - b);
+    return { floor: levels[9], median: levels[90], peak: levels.at(-1) };
+  });
+  check('Rain has a continuous audible bed', startingRain.floor > 0.002);
+  check('Close drops stand out above the rain bed', startingRain.peak > startingRain.median * 1.3 &&
+    startingRain.peak < 0.03);
+  await page.evaluate(() => window.__konbini.env.set({ weather: 'clear' }, true));
   const rect = await page.$eval('.sound-panel', (panel) => {
     const r = panel.getBoundingClientRect();
     return Math.abs(r.x + r.width / 2 - innerWidth / 2) < 1 && Math.abs(r.y + r.height / 2 - innerHeight / 2) < 1;
@@ -77,8 +91,11 @@ try {
   await sleep(300);
   check('Unmute restores ambient output', (await inspect()).rms > 0.00001);
   await page.evaluate(() => window.__konbini.env.set({ time: 'night', weather: 'rain' }));
-  await page.waitForFunction(() => window.__konbini.sound.inspect().rain > 0.23);
-  check('Rain and nighttime follow the environment', (await inspect()).environment.time === 'night');
+  await page.waitForFunction(() => {
+    const mix = window.__konbini.sound.inspect();
+    return mix.rain > 0.2 && mix.wind < 0.002;
+  });
+  check('Rain follows the environment and replaces the wind', (await inspect()).environment.time === 'night');
   await page.evaluate(() => window.__konbini.env.set({ weather: 'snow' }));
   await page.waitForFunction(() => window.__konbini.sound.inspect().rain < 0.015 && window.__konbini.sound.inspect().wind > 0.2);
   check('Snow fades rain out and raises soft wind', true);

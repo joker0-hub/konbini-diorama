@@ -131,6 +131,16 @@ try {
   check('减少动效下可主动查看静态开场', await page.evaluate(() =>
     !!document.querySelector('.intro') && window.__konbini.world.assembly.finished &&
     getComputedStyle(document.querySelector('.ide__row')).animationName === 'none'));
+  await page.setViewport({ width: 320, height: 568, isMobile: true, hasTouch: true });
+  await visit('?intro=1');
+  check('小屏开场的输入框与操作按钮完整可见', await page.$eval('.intro__ide', (editor) => {
+    const bounds = editor.getBoundingClientRect();
+    return [...editor.querySelectorAll('.ide__chip, .ide__cmd, .ide__go')].every((control) => {
+      const rect = control.getBoundingClientRect();
+      return rect.left >= bounds.left && rect.right <= bounds.right &&
+        rect.top >= bounds.top && rect.bottom <= bounds.bottom;
+    });
+  }));
   await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
   await page.keyboard.press('Escape');
   await page.waitForSelector('.intro', { hidden: true });

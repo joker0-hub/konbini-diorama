@@ -1,24 +1,4 @@
-/**
- * IDE 式代码开场。
- *
- * 不是"黑屏淡入"，而是把"这个世界是怎么被写出来的"演一遍：
- * 一个 IntelliJ IDEA 窗口里躺着这个项目的入口文件，两段代码分两次"编译"。
- *
- *   STEP 1  初始化便利店街角  → 底部的「继续」把第二段代码接上去
- *   STEP 2  进入可探索空间    → 「进入站点」把 IDE 收起来
- *   标题卡  ホシノマート      → 没有按钮，停一拍，然后两扇门向左右滑开
- *
- * 窗口左上角的红黄绿是纯装饰（没有交互），右上角才是真正的操作：
- * 「直接显示」跳到标题卡，「跳过开场」直接进门。
- *
- * 全部由 DOM + CSS 生成：没有图片、没有视频、没有字体文件。
- *
- * 交互：
- * - 「继续」/ Enter → 输出第二段；「进入站点」/ Enter → 标题卡
- * - 「直接显示」→ 标题卡；「跳过开场」/ Esc → 直接进门
- * - 标题卡上没有按钮，停约 2.1 秒后自动开门；点一下可以立刻开门
- * - ?intro=0、?instant=1 当次跳过；重播可显示减少动效版本
- */
+/** 两段代码演示结束后亮起便利店标题，再用双扇滑门揭开 3D 场景。 */
 
 /* ---------------- 代码行 ---------------- */
 
@@ -274,34 +254,40 @@ export function createCodeOpening(
   root.setAttribute('role', 'dialog');
   root.setAttribute('aria-modal', 'false');
   root.setAttribute('aria-label', 'konbini-diorama opening sequence');
+  root.style.setProperty('--splash-duration', `${SPLASH_MS}ms`);
 
   /* ---------------- 背后的两扇门 ---------------- */
   const leaves = document.createElement('div');
   leaves.className = 'intro__leaves';
+  leaves.setAttribute('aria-hidden', 'true');
   leaves.innerHTML = '<div class="intro__leaf intro__leaf--l"></div><div class="intro__leaf intro__leaf--r"></div>';
 
-  // IDE 不再撑满屏幕：它是一扇浮在暗背景上的窗口
   const shade = document.createElement('div');
   shade.className = 'intro__shade';
+
+  const petals = document.createElement('div');
+  petals.className = 'intro__petals';
+  petals.setAttribute('aria-hidden', 'true');
+  for (let i = 0; i < 24; i++) {
+    const petal = document.createElement('i');
+    petal.style.left = `${(i * 37) % 108 - 6}%`;
+    petal.style.setProperty('--size', `${7 + (i * 5) % 9}px`);
+    petal.style.setProperty('--drift', `${35 + (i * 23) % 72}px`);
+    petal.style.animationDuration = `${6.5 + (i % 7) * 0.68}s`;
+    petal.style.animationDelay = `${-i * 0.83}s`;
+    petals.appendChild(petal);
+  }
 
   /* ---------------- 标题卡（无按钮） ---------------- */
   const splash = document.createElement('div');
   splash.className = 'intro__splash';
   splash.innerHTML =
-    '<header class="intro__top">' +
-    '<span class="intro__tag">konbini-diorama</span>' +
-    '<span class="intro__sign">OPEN 24 HOURS</span>' +
-    `<span class="intro__env">${time.toUpperCase()} · ${weather.toUpperCase()}</span>` +
-    '</header>' +
     '<div class="intro__title">' +
-    '<p class="intro__title-jp">ホシノマート</p>' +
-    '<span class="intro__title-en">HOSHINO MART · KONBINI DIORAMA</span>' +
+    '<span class="intro__sign">OPEN 24 HOURS</span>' +
+    '<p class="intro__title-jp" lang="ja">ホシノマート</p>' +
+    '<span class="intro__title-en" lang="en">Hoshino Mart</span>' +
     '</div>' +
-    '<footer class="intro__bottom">' +
-    '<span class="intro__status"><i></i><b>READY · OPEN 24 HOURS</b></span>' +
-    '<span class="intro__meter"><i></i></span>' +
-    `<span class="intro__counter">${String(CODE.length).padStart(2, '0')} / ${String(CODE.length).padStart(2, '0')}</span>` +
-    '</footer>';
+    '<span class="intro__meter" aria-hidden="true"></span>';
 
   /* ---------------- IDE 窗口 ---------------- */
   const ide = document.createElement('div');
@@ -311,7 +297,7 @@ export function createCodeOpening(
   bar.className = 'ide__bar';
   bar.innerHTML =
     '<span class="ide__lights" aria-hidden="true"><i></i><i></i><i></i></span>' +
-    '<span class="ide__title">IntelliJ IDEA <em>// konbini.scene.ts</em></span>' +
+    '<span class="ide__title">场景编辑器</span>' +
     '<span class="ide__top-actions">' +
     `<button type="button" class="ide__chip ide__chip--reveal" data-act="reveal">${ICON_BOLT}<span>直接显示</span></button>` +
     `<button type="button" class="ide__chip" data-act="skip"><span>跳过开场</span>${ICON_SKIP}</button>` +
@@ -385,17 +371,13 @@ export function createCodeOpening(
   term.innerHTML =
     '<span class="ide__prompt">hoshino@konbini:~$</span>' +
     '<input class="ide__cmd" type="text" spellcheck="false" autocomplete="off" ' +
-    'aria-label="终端输入，按 Enter 继续" placeholder="输入任意内容按 Enter 继续（第 1 段 → 第 2 段进入站点）" />' +
+    'aria-label="终端输入，按 Enter 继续" placeholder="按 Enter 继续" />' +
     '<button type="button" class="ide__go" data-act="next">' +
-    '<span class="ide__go-label">继续 → 进入可探索空间</span><em>(Enter)</em></button>';
+    '<span class="ide__go-label">继续</span><span aria-hidden="true">→</span></button>';
 
-  const caption = document.createElement('p');
-  caption.className = 'ide__caption';
-  caption.textContent = '这是一个可以走进去的便利店街角：代码只是入口，雨夜与货架承载内容。';
+  ide.append(bar, tabs, code, logBar, term);
 
-  ide.append(bar, tabs, code, logBar, term, caption);
-
-  root.append(leaves, shade, splash, ide);
+  root.append(leaves, shade, petals, splash, ide);
   document.body.appendChild(root);
 
   /* ---------------- 引用 ---------------- */
@@ -406,7 +388,6 @@ export function createCodeOpening(
   const stepBadge = tabs.querySelector('.ide__step') as HTMLElement;
   const logText = logBar.querySelector('.ide__log-text') as HTMLElement;
   const cmd = term.querySelector('.ide__cmd') as HTMLInputElement;
-  const meterFill = splash.querySelector('.intro__meter i') as HTMLElement;
 
   /* ---------------- 工作状态 / 使用说明 ---------------- */
   const workBtn = logBar.querySelector('[data-tip="work"]') as HTMLButtonElement;
@@ -491,7 +472,6 @@ export function createCodeOpening(
     rowEls[i].classList.add('is-new');
     rowEls[i].style.setProperty('--i', String(i));
   });
-  meterFill.style.transform = 'scaleX(0.62)';
 
   const finishDestroy = (): void => {
     if (stage === 'done') return;
@@ -530,7 +510,6 @@ export function createCodeOpening(
     // 标题卡上没有按钮：整张 IDE 退出焦点顺序，避免 Tab 到看不见的按钮
     ide.setAttribute('inert', '');
     ide.setAttribute('aria-hidden', 'true');
-    meterFill.style.transform = 'scaleX(1)';
     splashTimer = window.setTimeout(open, SPLASH_MS);
   };
 
@@ -547,19 +526,20 @@ export function createCodeOpening(
       row.style.setProperty('--i', String(i));
     });
     moveCaret(rowEls[CODE.length - 1]);
-    meterFill.style.transform = 'scaleX(1)';
 
     stepBadge.innerHTML =
       '<b>STEP 2 / 2</b><span class="ide__step-label"> · 进入可探索空间</span>';
     logText.innerHTML =
       '&gt; <b class="is-ready">[READY]</b> 便利店街角已就绪，靠近物件按 E 打开内容。';
-    cmd.placeholder = '输入任意内容按 Enter 进入站点';
+    cmd.placeholder = '按 Enter 进入站点';
+    cmd.setAttribute('aria-label', '终端输入，按 Enter 进入站点');
     goLabel.textContent = '进入站点';
     nextBtn.classList.add('is-armed');
 
     // 编辑器滚到第二段：和参考图一样，行号从 3 左右开始。
     requestAnimationFrame(() => {
-      code.scrollTo({ top: code.scrollHeight, behavior: 'smooth' });
+      const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      code.scrollTo({ top: code.scrollHeight, behavior: reducedMotion ? 'auto' : 'smooth' });
     });
   };
 

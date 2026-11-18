@@ -20,7 +20,7 @@
  */
 
 import * as THREE from 'three';
-import { addBox, addCyl, group, planeGeo, strut } from '../core/geom';
+import { addBox, addCyl, group, noOutline, planeGeo, strut } from '../core/geom';
 import { additiveClone, radialGlowTex, toon } from '../core/materials';
 import { L } from './layout';
 
@@ -48,7 +48,7 @@ const PED_FLASH_HZ = 2.4;
 /** 绿人走路帧频率（Hz） */
 const WALK_HZ = 2.2;
 
-const VEHICLE_COLORS = [0x49e08a, 0xffc94a, 0xff3b30] as const;
+const VEHICLE_COLORS = [0x48e4a0, 0xffc24a, 0xff473b] as const;
 
 export type VehiclePhase = 'green' | 'yellow' | 'red';
 export type PedPhase = 'red' | 'green' | 'flash';
@@ -66,6 +66,7 @@ export interface SignalHandles {
   root: THREE.Group;
   head: THREE.Group;
   ped: THREE.Group;
+  light: THREE.PointLight;
   update: (t: number, dt: number, ambience: { signage: number; wetness: number }) => void;
   state: () => SignalState;
 }
@@ -76,10 +77,10 @@ function iconTexture(kind: 'stand' | 'walkA' | 'walkB'): THREE.Texture {
   const W = 96;
   const H = 128;
   const c = document.createElement('canvas');
-  c.width = W;
-  c.height = H;
+  c.width = W * 2;
+  c.height = H * 2;
   const ctx = c.getContext('2d')!;
-  ctx.clearRect(0, 0, W, H);
+  ctx.scale(2, 2);
   ctx.strokeStyle = '#ffffff';
   ctx.fillStyle = '#ffffff';
   ctx.lineCap = 'round';
@@ -126,22 +127,49 @@ function iconTexture(kind: 'stand' | 'walkA' | 'walkB'): THREE.Texture {
 
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
-  t.minFilter = THREE.LinearFilter;
-  t.magFilter = THREE.LinearFilter;
-  t.generateMipmaps = false;
   return t;
 }
 
-/* ------------------------------------------------------------------ */
+function lensTexture(): THREE.CanvasTexture {
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const lens = ctx.createRadialGradient(49, 45, 12, 64, 64, 67);
+  lens.addColorStop(0, '#f4f4f4');
+  lens.addColorStop(0.7, '#b7b7b7');
+  lens.addColorStop(1, '#565656');
+  ctx.fillStyle = lens;
+  ctx.fillRect(0, 0, size, size);
+
+  // The prismatic LED grid is visible in close-ups and mips down at street scale.
+  ctx.fillStyle = 'rgba(255,255,255,0.55)';
+  for (let y = 9; y < size; y += 9) {
+    const shift = y % 2 ? 4.5 : 0;
+    for (let x = 5; x < size; x += 9) {
+      ctx.beginPath();
+      ctx.arc(x + shift, y, 2.25, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(64, 64, 55, Math.PI * 1.14, Math.PI * 1.82);
+  ctx.stroke();
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
 
 export function buildTrafficSignal(parent: THREE.Object3D): SignalHandles {
   const root = group(parent, 0, 0, 0, 'traffic-signal');
 
-  const poleMat = toon(0x2a313a);
-  const dark = toon(0x151a21);
-  const housing = toon(0x1c222a);
-  const plate = toon(0x4f5965);
-  const metal = toon(0x8f98a4);
+  const poleMat = toon(0x46525d);
+  const dark = toon(0x232a32);
+  const housing = toon(0x404e5a);
+  const plate = toon(0x657582);
+  const metal = toon(0xa6b2bb);
 
   /* ================= 杆 + 基础 ================= */
   addCyl(root, dark, 0.22, 0.25, 0.07, POLE.x, CURB, POLE.z, { seg: 16 });
@@ -167,64 +195,82 @@ export function buildTrafficSignal(parent: THREE.Object3D): SignalHandles {
 
   /* ================= 车灯箱 ================= */
   const head = group(root, HEAD_X, HEAD_Y, HEAD_Z, 'signal-head');
-  // 背板：比灯箱大一圈，让灯箱在夜空/树影前仍有清楚的轮廓
-  addBox(head, plate, 1.18, 0.52, 0.035, 0, -0.26, -0.13, { r: 0.03 });
-  // 灯箱本体
-  addBox(head, housing, 1.08, 0.4, 0.24, 0, -0.2, 0, { r: 0.05 });
-  addBox(head, dark, 1.14, 0.05, 0.28, 0, 0.2, 0, { r: 0.02 });
-  addBox(head, dark, 1.12, 0.04, 0.26, 0, -0.24, 0, { r: 0.02 });
-  // 顶部小檐，防止从正上方看灯箱是一条平线
-  addBox(head, toon(0x20262e), 0.4, 0.035, 0.1, 0, 0.25, 0.05, { cast: false });
+  addBox(head, plate, 1.18, 0.43, 0.05, 0, -0.215, -0.12, { r: 0.022 });
+  addBox(head, housing, 1.13, 0.376, 0.235, 0, -0.188, 0, { r: 0.045 });
+  addBox(head, dark, 1.085, 0.32, 0.032, 0, -0.16, 0.116, { r: 0.014, cast: false });
+  addBox(head, plate, 1.15, 0.029, 0.255, 0, 0.177, 0, { r: 0.01, cast: false });
+  for (const x of [-0.55, 0.55]) {
+    for (const y of [-0.13, 0.13]) {
+      noOutline(addCyl(head, metal, 0.01, 0.01, 0.01, x, y - 0.005, 0.124,
+        { rx: Math.PI / 2, seg: 8, cast: false }));
+    }
+  }
 
-  const hoodGeo = new THREE.CylinderGeometry(0.15, 0.15, 0.13, 16, 1, true, Math.PI / 2, Math.PI);
+  const hoodGeo = new THREE.CylinderGeometry(0.139, 0.139, 0.19, 24, 1, true, Math.PI / 2, Math.PI);
   hoodGeo.rotateX(Math.PI / 2);
-  const hoodMat = toon(0x232932, { side: THREE.DoubleSide });
+  const hoodVertices = hoodGeo.attributes.position;
+  for (let i = 0; i < hoodVertices.count; i++) {
+    if (hoodVertices.getZ(i) > 0) {
+      hoodVertices.setZ(i, hoodVertices.getZ(i) - 0.073 * (1 - hoodVertices.getY(i) / 0.139));
+    }
+  }
+  hoodGeo.computeVertexNormals();
+  const hoodMat = toon(0x3f4a54, { side: THREE.DoubleSide });
+  const bezelGeo = new THREE.RingGeometry(0.107, 0.133, 32);
+  const lensGeo = new THREE.RingGeometry(0, 0.108, 40, 6);
+  const lensVertices = lensGeo.attributes.position;
+  for (let i = 0; i < lensVertices.count; i++) {
+    const radius = Math.hypot(lensVertices.getX(i), lensVertices.getY(i)) / 0.108;
+    lensVertices.setZ(i, 0.023 * (1 - radius * radius));
+  }
+  const lensMap = lensTexture();
 
   const lamps: {
     mat: THREE.MeshBasicMaterial;
-    haloMat: THREE.MeshBasicMaterial;
+    halo: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
     base: THREE.Color;
     level: number;
   }[] = [];
 
   for (let i = 0; i < 3; i++) {
-    const x = -0.34 + i * 0.34;
+    const x = -0.347 + i * 0.347;
     // 灯圈
-    const bezel = new THREE.Mesh(new THREE.RingGeometry(0.098, 0.132, 24), toon(0x1a2028));
-    bezel.position.set(x, 0.02, 0.123);
+    const bezel = new THREE.Mesh(bezelGeo, plate);
+    bezel.position.set(x, 0, 0.134);
     head.add(bezel);
     // 灯面：灭时保留深色，亮时颜色 >1 交给 bloom
     const base = new THREE.Color(VEHICLE_COLORS[i]);
     const mat = new THREE.MeshBasicMaterial({
       color: base.clone().multiplyScalar(0.1),
+      map: lensMap,
       toneMapped: false,
       fog: false,
     });
-    const lens = new THREE.Mesh(new THREE.CircleGeometry(0.097, 24), mat);
-    lens.position.set(x, 0.02, 0.127);
+    const lens = new THREE.Mesh(lensGeo, mat);
+    lens.position.set(x, 0, 0.136);
     lens.layers.set(1);
     lens.name = ['lamp-green', 'lamp-yellow', 'lamp-red'][i];
     head.add(lens);
     // 遮光罩
     const hood = new THREE.Mesh(hoodGeo, hoodMat);
-    hood.position.set(x, 0.02, 0.075);
+    hood.position.set(x, 0, 0.215);
     hood.castShadow = false;
     hood.receiveShadow = false;
     head.add(hood);
     // 灯面外晕
     const haloMat = additiveClone(radialGlowTex(), base.getHex(), 0);
-    const halo = new THREE.Mesh(planeGeo(0.52, 0.52), haloMat);
-    halo.position.set(x, 0.02, 0.19);
+    const halo = new THREE.Mesh(planeGeo(0.39, 0.39), haloMat);
+    halo.position.set(x, 0, 0.165);
     halo.renderOrder = 8;
     halo.layers.set(1);
     head.add(halo);
-    lamps.push({ mat, haloMat, base, level: i === 0 ? 1 : 0 });
+    lamps.push({ mat, halo, base, level: i === 0 ? 1 : 0 });
   }
 
   /* ================= 行人信号 ================= */
   // 行人灯箱用不受光照影响的深色，避免被店门口的暖光染成一块米色板；
   // 亮着的红/绿人才是视觉焦点。
-  const pedBoxMat = new THREE.MeshBasicMaterial({ color: 0x1b2129, toneMapped: false, fog: true });
+  const pedBoxMat = toon(0x43515c);
   const pedDarkMat = new THREE.MeshBasicMaterial({ color: 0x0c1015, toneMapped: false, fog: true });
   const ped = group(root, POLE.x, PED_Y, PED_Z, 'ped-signal');
   addBox(ped, pedBoxMat, 0.3, 0.66, 0.16, 0, -0.33, 0, { r: 0.03 });
@@ -243,6 +289,7 @@ export function buildTrafficSignal(parent: THREE.Object3D): SignalHandles {
     glass.position.set(0, windowY[i], 0.086);
     glass.layers.set(1);
     ped.add(glass);
+    addBox(ped, plate, 0.24, 0.022, 0.075, 0, windowY[i] + 0.111, 0.102, { r: 0.008, cast: false });
   }
 
   const standTex = iconTexture('stand');
@@ -350,11 +397,6 @@ export function buildTrafficSignal(parent: THREE.Object3D): SignalHandles {
   const damp = (x: number, target: number, rate: number, dt: number): number =>
     x + (target - x) * (1 - Math.exp(-rate * dt));
 
-  const setHaloColor = (mat: THREE.MeshBasicMaterial, c: THREE.Color, level: number, size: number): void => {
-    mat.color.copy(c);
-    mat.opacity = level * 0.5 * size;
-  };
-
   const update = (t: number, dt: number, ambience: { signage: number; wetness: number }): void => {
     const step = Math.max(1e-4, Math.min(dt, 0.05));
     const cycleT = ((t % CYCLE) + CYCLE) % CYCLE;
@@ -377,8 +419,9 @@ export function buildTrafficSignal(parent: THREE.Object3D): SignalHandles {
     // 灯面 + 外晕
     for (let i = 0; i < 3; i++) {
       const l = lamps[i];
-      l.mat.color.copy(l.base).multiplyScalar(0.09 + l.level * 1.55);
-      setHaloColor(l.haloMat, l.base, l.level, 0.35 + 0.65 * ambience.signage);
+      l.mat.color.copy(l.base).multiplyScalar(0.12 + l.level * 1.9);
+      l.halo.material.opacity = l.level * (0.1 + 0.23 * ambience.signage);
+      l.halo.visible = l.halo.material.opacity > 0.002;
     }
 
     // 点光：取当前最亮的灯色，避免"灯已经变红、地面还是绿的"
@@ -407,8 +450,10 @@ export function buildTrafficSignal(parent: THREE.Object3D): SignalHandles {
 
     pedRedMat.color.copy(redOff).lerp(redOn, state.levels.pedRed);
     pedGreenMat.color.copy(greenOff).lerp(greenOn, state.levels.pedGreen);
-    pedHaloRedMat.opacity = state.levels.pedRed * 0.24;
-    pedHaloGreenMat.opacity = state.levels.pedGreen * 0.3;
+    pedHaloRedMat.opacity = state.levels.pedRed * 0.15;
+    pedHaloGreenMat.opacity = state.levels.pedGreen * 0.19;
+    pedHaloRed.visible = pedHaloRedMat.opacity > 0.002;
+    pedHaloGreen.visible = pedHaloGreenMat.opacity > 0.002;
 
     // 绿人走路：只在亮着的时候换帧；灭灯时回到第一帧
     if (state.levels.pedGreen > 0.08) {
@@ -434,6 +479,7 @@ export function buildTrafficSignal(parent: THREE.Object3D): SignalHandles {
     root,
     head,
     ped,
+    light,
     update,
     state: () => ({
       ...state,

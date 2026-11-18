@@ -21,12 +21,10 @@ import type { TimeOfDay, Weather } from './scene/environment';
 const canvas = document.getElementById('stage') as HTMLCanvasElement;
 
 /* ---------------- 渲染器 ---------------- */
-// antialias 开着对"直接渲到屏幕"有用；本项目走 RT + 后处理，
-// 真正决定几何边缘质量的是 pipeline 里那个 RT 的 samples（MSAA）。
-// 两处都开，默认帧缓冲那条路径（例如调试）也能受益。
+// The canvas receives a fullscreen composite. Only the offscreen scene needs MSAA.
 const renderer = new THREE.WebGLRenderer({
   canvas,
-  antialias: true,
+  antialias: false,
   alpha: false,
   powerPreference: 'high-performance',
   preserveDrawingBuffer: false,
@@ -37,12 +35,12 @@ const MAX_PIXEL_RATIO = 2;
 const MAX_RENDER_PIXELS = 6_000_000;
 function currentPixelRatio(): number {
   const pixels = Math.max(1, window.innerWidth * window.innerHeight);
-  return Math.max(1, Math.min(MAX_PIXEL_RATIO, Math.sqrt(MAX_RENDER_PIXELS / pixels)));
+  return Math.min(MAX_PIXEL_RATIO, Math.sqrt(MAX_RENDER_PIXELS / pixels));
 }
 renderer.setPixelRatio(currentPixelRatio());
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.NoToneMapping;
 renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
 renderer.setClearColor(0x05070d, 1);
@@ -117,17 +115,20 @@ world.environment.bindRender({
 });
 
 /* ---------------- 尺寸 ---------------- */
-// Adjust only after a sustained slow window, excluding loading/assembly and
-// tab suspension. Small quarter steps preserve more detail than the old 0.5 jump.
-let pixelRatioLevel = currentPixelRatio();
+// Lower resolution for sustained load and raise it again after stable, fast frames.
+// A separate recovery threshold avoids bouncing between two resolutions.
+const PIXEL_RATIO_STEP = 0.25;
+let pixelRatioReduction = 0;
 let frameBudget = 0;
 let frameCount = 0;
-let qualityWarmup = 2;
+let qualityWarmup = 1;
+let fastWindows = 0;
 
 function watchFrameBudget(dtMs: number): void {
   if (document.hidden || !world.assembly.finished) {
     frameBudget = 0;
     frameCount = 0;
+    fastWindows = 0;
     return;
   }
   // Bound a resume/compilation spike, while still adapting on consistently
@@ -137,29 +138,36 @@ function watchFrameBudget(dtMs: number): void {
     qualityWarmup -= sampleMs / 1000;
     return;
   }
-  if (pixelRatioLevel <= 1.01) return;
   frameBudget += sampleMs;
   frameCount++;
-  if (frameCount < 30 || frameBudget < 1500) return;
+  if (frameCount < 16 || frameBudget < 1000) return;
   const avg = frameBudget / frameCount;
   frameBudget = 0;
   frameCount = 0;
-  if (avg > 20.5) {
-    pixelRatioLevel = Math.max(1, pixelRatioLevel - 0.25);
-    resize();
-    qualityWarmup = 2;
-  }
+  fastWindows = avg < 17.25 ? fastWindows + 1 : 0;
+  const upperRatio = currentPixelRatio();
+  const maxReduction = Math.max(0, upperRatio - 1);
+  let nextReduction = Math.min(pixelRatioReduction, maxReduction);
+  if (avg > 24) nextReduction = Math.min(maxReduction, nextReduction + PIXEL_RATIO_STEP);
+  if (fastWindows >= 3) nextReduction = Math.max(0, nextReduction - PIXEL_RATIO_STEP);
+  if (nextReduction === pixelRatioReduction) return;
+  pixelRatioReduction = nextReduction;
+  fastWindows = 0;
+  resize();
+  qualityWarmup = 1;
 }
 
+const drawSize = new THREE.Vector2();
 function resize(): void {
   const w = window.innerWidth;
   const h = window.innerHeight;
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
-  const pr = Math.min(pixelRatioLevel, currentPixelRatio());
-  renderer.setPixelRatio(pr);
+  const upperRatio = currentPixelRatio();
+  const pr = Math.max(Math.min(upperRatio, 1), upperRatio - pixelRatioReduction);
+  if (renderer.getPixelRatio() !== pr) renderer.setPixelRatio(pr);
   renderer.setSize(w, h);
-  const drawSize = renderer.getDrawingBufferSize(new THREE.Vector2());
+  renderer.getDrawingBufferSize(drawSize);
   pipeline.setSize(drawSize.x, drawSize.y);
 }
 window.addEventListener('resize', resize);
@@ -197,6 +205,7 @@ const opening = createCodeOpening({
 });
 if ((envInit.instant && !envInit.forceIntro) || reducedMotion) {
   world.assembly.finishNow();
+  world.doMerge();
 } else {
   world.assembly.update(0);
   world.assembly.paused = opening.isRunning;
@@ -370,6 +379,7 @@ window.addEventListener('beforeunload', () => {
 /* ---------------- 主循环 ---------------- */
 const clock = new THREE.Clock();
 let elapsed = 0;
+let nextShadowUpdate = 0;
 
 function frame(): void {
   const realDelta = clock.getDelta();
@@ -386,7 +396,11 @@ function frame(): void {
   world.update(elapsed, dt, camera, document.hidden ? 0 : Math.min(realDelta, 1));
   const surface = world.environment.details();
   envUI.setSnowFeedback(surface.snowOnGround, surface.weather, surface.meltwater);
-  pipeline.render(elapsed, dt);
+  // Slow environmental motion can reuse a shadow map across several display frames.
+  // Assembly and held bottles still update their shadows every frame.
+  const refreshShadows = !world.assembly.finished || bottleDrag.isActive() || elapsed >= nextShadowUpdate;
+  if (refreshShadows) nextShadowUpdate = elapsed + 1 / 20;
+  pipeline.render(elapsed, dt, refreshShadows);
   // 帧率守卫：只有真的跑不动才退档，正常设备一直保持最高清晰度
   watchFrameBudget(realDelta * 1000);
   requestAnimationFrame(frame);
@@ -458,6 +472,7 @@ window.__konbini = {
   skipIntro: () => {
     opening.skip();
     world.assembly.finishNow();
+    world.doMerge();
   },
   skipOpening: () => opening.skip(),
   view: (pos, target) => {

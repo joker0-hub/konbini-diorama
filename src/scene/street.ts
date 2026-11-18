@@ -8,7 +8,7 @@
 
 import * as THREE from 'three';
 import { P } from '../core/palette';
-import { addBox, addCyl, addMesh, group, noOutline, planeGeo, strut } from '../core/geom';
+import { addBox, addCyl, group, noOutline, planeGeo, strut } from '../core/geom';
 import { additiveClone, decal, glow, radialGlowTex, toon } from '../core/materials';
 import * as TX from '../core/textures';
 import { L } from './layout';
@@ -26,6 +26,7 @@ import { buildPosterFrame } from './advertising';
 const CURB = L.curb;
 
 export interface StreetRefs {
+  root: THREE.Group;
   /** 街角信号灯（车灯 + 行人灯 + 循环） */
   signal: SignalHandles;
   streetLamp: THREE.SpotLight;
@@ -57,12 +58,14 @@ export function buildStreet(root: THREE.Object3D, ctx: SceneCtx): StreetRefs {
   }
 
   /* ================= 路灯 ================= */
-  const streetLamp = buildStreetLamp(g, -6.5, L.walk.zOuter - 0.55, ctx);
+  const lamp = group(g, 0, 0, 0, 'street-lamp');
+  const streetLamp = buildStreetLamp(lamp, -6.5, L.walk.zOuter - 0.55, ctx);
 
   /* ================= 电线杆 + 电线 ================= */
   // The pole builder owns both pole positions and exact conductor terminals.
   // Crossarms stay within the base and each pair of street-side poles aligns.
-  buildUtilityPoles(g);
+  const utilities = group(g, 0, 0, 0, 'street-utilities');
+  buildUtilityPoles(utilities);
 
   /* ================= 信号灯（街角路口） ================= */
   // 杆脚放在人行道转角内侧（x≈4.2, z≈2.95），横臂伸到右侧车道上方，
@@ -71,15 +74,16 @@ export function buildStreet(root: THREE.Object3D, ctx: SceneCtx): StreetRefs {
   const signal = buildTrafficSignal(g);
 
   /* ================= 路牌 ================= */
-  buildRoadSigns(g);
+  const furniture = group(g, 0, 0, 0, 'street-furniture');
+  buildRoadSigns(furniture);
 
   /* ================= 护栏 ================= */
   // 护栏必须给店门口留出口：横在门前的护栏会挡住"入口"这个视觉焦点，
   // 也会让门前的湿地反光少掉一大块。
-  buildGuardrail(g, -3.2, L.walk.zOuter - 0.32, -0.3, L.walk.zOuter - 0.32);
+  buildGuardrail(furniture, -3.2, L.walk.zOuter - 0.32, -0.3, L.walk.zOuter - 0.32);
   // 原 2.6..4.1 这段护栏正好横在门口三色垃圾桶背后，
   // 白色横杆会从桶顶穿过去，像一条漂在空中的长条 —— 去掉。
-  buildGuardrail(g, L.walk.xOuter - 0.32, 3.9, L.walk.xOuter - 0.32, 6.0);
+  buildGuardrail(furniture, L.walk.xOuter - 0.32, 3.9, L.walk.xOuter - 0.32, 6.0);
 
   /* ================= 小巷 ================= */
   buildAlley(g, ctx);
@@ -88,11 +92,12 @@ export function buildStreet(root: THREE.Object3D, ctx: SceneCtx): StreetRefs {
   buildNeighbor(g, ctx);
 
   /* ================= 自行车 ================= */
-  buildBicycle(g, -4.9, CURB, 2.1, Math.PI * 0.47);
-  buildBicycle(g, -3.95, CURB, 2.22, Math.PI * 0.44);
+  const sidewalkProps = group(g, 0, 0, 0, 'sidewalk-props');
+  buildBicycle(sidewalkProps, -4.9, CURB, 2.1, Math.PI * 0.47);
+  buildBicycle(sidewalkProps, -3.95, CURB, 2.22, Math.PI * 0.44);
   // 后轮原来会探进侧墙 2cm（轮心 3.0 - 0.82 = 2.18 < 墙 2.2），
   // 从侧街看就像自行车一半陷在店里；整体向外挪 18cm。
-  buildBicycle(g, 3.18, CURB, -4.6, Math.PI * 0.02);
+  buildBicycle(sidewalkProps, 3.18, CURB, -4.6, Math.PI * 0.02);
 
   /* ================= 反光柱 ================= */
   // 只保留护栏「外侧」那几根，不再往门口护栏的跨度里插柱子。
@@ -101,35 +106,45 @@ export function buildStreet(root: THREE.Object3D, ctx: SceneCtx): StreetRefs {
   // 从街上看向伞架时，一根带红白条纹的细柱横在护栏和伞架之间 —
   // 既挡视线，又和护栏立柱形成"一粗一细"两根竖线，读起来像建模错位。
   for (const x of [-3.4, 1.2, 3.5]) {
-    addCyl(g, toon(0xdde2e8), 0.05, 0.05, 0.74, x, CURB, L.walk.zOuter - 0.42, { seg: 8 });
-    addCyl(g, toon(0xd2452f), 0.052, 0.052, 0.095, x, CURB + 0.58, L.walk.zOuter - 0.42, { seg: 8 });
+    addCyl(furniture, toon(0xdde2e8), 0.05, 0.05, 0.74, x, CURB, L.walk.zOuter - 0.42, { seg: 8 });
+    addCyl(furniture, toon(0xd2452f), 0.052, 0.052, 0.095, x, CURB + 0.58, L.walk.zOuter - 0.42, { seg: 8 });
   }
 
   /* ================= 门口伞架 + 垃圾桶 ================= */
   // Leave the tactile strip along the windows clear and keep the stand left of the mat.
-  const umbrellaStand = buildUmbrellaStand(g, L.door.x0 - 0.85, L.store.z1 + 0.96);
+  const umbrellaStand = buildUmbrellaStand(sidewalkProps, L.door.x0 - 0.85, L.store.z1 + 0.96);
   ctx.ticks.push(umbrellaStand.update);
-  buildTrashBins(g, L.store.x1 + 0.75, L.store.z1 + 1.5, bottlePhysics, recyclingBins);
+  buildTrashBins(sidewalkProps, L.store.x1 + 0.75, L.store.z1 + 1.5, bottlePhysics, recyclingBins);
 
   /* ================= 樱花树（板块左下角） ================= */
   // 参考樱花树的原始模型约 7m 高，按街景比例缩到 42%。
   // 位置在板块左下角的车行道上，所以落地高度是沥青面 y = 0，
   // 不是人行道的 curb —— 树池与树共用 L.sakura.baseY。
   // 它保持独立的动态子树，避免被世界的静态几何合并烘焙掉。
-  const sakura = buildSakuraTree(g, { x: L.sakura.x, y: L.sakura.baseY, z: L.sakura.z }, 0.42);
-  buildTreePit(g, L.sakura.x, L.sakura.z, L.sakura.baseY);
+  const planting = group(g, 0, 0, 0, 'street-planting');
+  const sakura = buildSakuraTree(planting, { x: L.sakura.x, y: L.sakura.baseY, z: L.sakura.z }, 0.42);
+  buildTreePit(planting, L.sakura.x, L.sakura.z, L.sakura.baseY);
 
   /* ================= 排水沟积水 ================= */
   const gutter = new THREE.Mesh(planeGeo(15.8, 0.22), additiveClone(TX.wetSmearTex(false), 0x8fd4ff, 0.24));
   gutter.rotation.x = -Math.PI / 2;
   gutter.position.set(-0.8, 0.022, L.road.z + 0.3);
   gutter.renderOrder = 3;
-  g.add(gutter);
+  furniture.add(gutter);
   noOutline(gutter);
   ctx.wet.push({ mesh: gutter, base: 0.24 });
 
-  ctx.pieces.push(g);
-  return { signal, streetLamp, sakura, vending, recyclingBins, umbrellaStand };
+  const { assembly } = ctx;
+  // Lower the connected poles and cables together, above the completed roof.
+  assembly.add(utilities, 'street', { fromY: 0.85 });
+  assembly.add(lamp, 'street', { fromScaleY: 0.16, order: 0.35 });
+  assembly.add(signal.root, 'street', { fromScaleY: 0.16, order: 0.65 });
+  assembly.add(furniture, 'street', { fromScaleY: 0.2, order: 1 });
+  vending.forEach(({ root }, i) => assembly.add(root, 'props', { fromY: -0.48, fromScaleY: 0.68, order: i * 0.3 }));
+  assembly.add(sidewalkProps, 'props', { fromY: -0.54, order: 0.6 });
+  assembly.add(planting, 'props', { fromScaleY: 0.24, order: 1 });
+
+  return { root: g, signal, streetLamp, sakura, vending, recyclingBins, umbrellaStand };
 }
 
 /* ------------------------------------------------------------------ */
@@ -335,15 +350,6 @@ function buildRoadSigns(parent: THREE.Object3D): void {
   addBox(s2, toon(0x2f6bd8), 0.36, 0.07, 0.01, 0, 3.16, 0.042, { cast: false });
   addBox(s2, toon(0x282d36), 0.26, 0.045, 0.01, 0, 2.98, 0.042, { cast: false });
   addBox(s2, toon(0x282d36), 0.36, 0.045, 0.01, 0, 2.89, 0.042, { cast: false });
-
-  // 街名牌（移到右侧人行道中段，避开街角信号灯）
-  // 原来放在 (4.6, 2.98) —— 正好和信号灯杆（4.18, 2.96）抢同一个角，
-  // 从街对面看过去两块牌子叠在一起。现在退到贩卖机前方的路缘侧。
-  const s3 = group(g, 4.02, CURB, -2.4);
-  addCyl(s3, pole, 0.042, 0.042, 3.3, 0, 0, 0, { seg: 8 });
-  addBox(s3, toon(0xf0eee2), 0.86, 0.26, 0.04, 0.2, 3.0, 0);
-  addBox(s3, toon(0x2f6bd8), 0.86, 0.042, 0.05, 0.2, 3.0, 0.01, { cast: false });
-  addMesh(s3, new THREE.CircleGeometry(0.048, 10), glow(0xffcf6a, 1.0), 0.54, 3.07, 0.032).castShadow = false;
 }
 
 function buildGuardrail(parent: THREE.Object3D, x0: number, z0: number, x1: number, z1: number): void {
@@ -448,6 +454,7 @@ function buildAlley(parent: THREE.Object3D, ctx: SceneCtx): void {
   g.add(wet);
   noOutline(wet);
   ctx.wet.push({ mesh: wet, base: 0.26 });
+  ctx.assembly.add(g, 'shell', { fromScaleY: 0.12, order: 0.15 });
 }
 
 /** 左侧邻楼：只有靠街的立面 + 楼顶，作为左侧的高度层次 */
@@ -493,7 +500,7 @@ function buildNeighbor(parent: THREE.Object3D, ctx: SceneCtx): void {
   addBox(g, toon(0xffffff, { map: TX.shutterTex() }), 0.07, 2.0, 2.2, N.x1 + 0.02, 0, N.z1 - 1.6);
   addBox(g, toon(0x363d4a), 0.5, 0.14, 2.4, N.x1 + 0.25, 0, N.z1 - 1.6);
 
-  ctx.pieces.push(g);
+  ctx.assembly.add(g, 'shell', { fromScaleY: 0.1, order: 0.35 });
 }
 
 function buildTrashBins(parent: THREE.Object3D, x: number, z: number, physics: BottlePhysics, recyclingBins: THREE.Object3D[]): void {
