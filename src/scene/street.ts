@@ -81,9 +81,6 @@ export function buildStreet(root: THREE.Object3D, ctx: SceneCtx): StreetRefs {
   // 护栏必须给店门口留出口：横在门前的护栏会挡住"入口"这个视觉焦点，
   // 也会让门前的湿地反光少掉一大块。
   buildGuardrail(furniture, -3.2, L.walk.zOuter - 0.32, -0.3, L.walk.zOuter - 0.32);
-  // 原 2.6..4.1 这段护栏正好横在门口三色垃圾桶背后，
-  // 白色横杆会从桶顶穿过去，像一条漂在空中的长条 —— 去掉。
-  buildGuardrail(furniture, L.walk.xOuter - 0.32, 3.9, L.walk.xOuter - 0.32, 6.0);
 
   /* ================= 小巷 ================= */
   buildAlley(g, ctx);
