@@ -41,7 +41,7 @@ npm run dev
 
 ## 许可
 
-项目声明使用 MIT 许可；仓库目前尚未附独立的 `LICENSE` 文件。
+本项目采用 [MIT 许可](LICENSE)，完整许可文本见仓库根目录的 `LICENSE` 文件。
 
 雨声循环混合了实际录制的持续降雨与近处屋檐滴水，取材自 seth-m 的 [rainfall](https://freesound.org/people/seth-m/sounds/323427/) 和 hoshisato 的 [rain and drips](https://freesound.org/people/hoshisato/sounds/853565/)。两段录音均采用 [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/)。
 
